@@ -756,8 +756,38 @@
 
             .controls-bar .filter-actions {
                 order: 4;
+                width: 100%;
+                display: flex;
+                gap: 8px;
+            }
+
+            /* Make buttons share width equally on mobile */
+            .controls-bar .filter-actions button {
+                flex: 1;
                 justify-content: center;
-                /* Center actions */
+                padding: 10px 4px !important;
+                /* Override inline padding */
+                font-size: 0.85rem;
+            }
+
+            /* Buttons SVG adjustments for mobile */
+            .controls-bar .filter-actions button svg {
+                width: 16px;
+                height: 16px;
+                margin-right: 4px;
+            }
+
+            /* Date Group full width */
+            .controls-bar .date-group {
+                width: 100%;
+                display: flex;
+                justify-content: space-between;
+            }
+
+            .date-input {
+                width: 46%;
+                /* Share space with separator */
+                text-align: center;
             }
 
             /* Adjust Category Select width */
@@ -886,33 +916,32 @@
                     </select>
                 </div>
                 <div class="filter-group date-group">
-                    <input type="date" id="dateStart" class="date-input" onchange="app.renderList()" lang="id">
+                    <input type="date" id="dateStart" class="date-input" onchange="app.renderList()">
                     <span class="date-separator">-</span>
-                    <input type="date" id="dateEnd" class="date-input" onchange="app.renderList()" lang="id">
+                    <input type="date" id="dateEnd" class="date-input" onchange="app.renderList()">
                 </div>
-                <div class="filter-actions">
-                    <button class="btn-icon" title="Salin Catatan" onclick="app.copyText()"
-                        style="color: #25D366; border-color: rgba(37, 211, 102, 0.4); background-color: rgba(37, 211, 102, 0.05);">
+                <div class="filter-actions" style="display:flex; gap:8px;">
+                    <button class="btn" title="Salin Catatan" onclick="app.copyText()"
+                        style="color: #25D366; border-color: rgba(37, 211, 102, 0.4); background-color: rgba(37, 211, 102, 0.05); padding: 8px 16px;">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                             stroke-linecap="round" stroke-linejoin="round">
                             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                         </svg>
+                        <span>Copy</span>
                     </button>
-                    <button class="btn-icon" title="Download TXT (Sesuai Filter)" onclick="app.downloadTxt()">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                            stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                            <polyline points="7 10 12 15 17 10"></polyline>
-                            <line x1="12" y1="15" x2="12" y2="3"></line>
-                        </svg>
+                    <button class="btn btn-secondary" title="Download TXT (Sesuai Filter)" onclick="app.downloadTxt()"
+                        style="padding: 8px 16px;">
+                        <span>Download</span>
                     </button>
-                    <button class="btn-icon" title="Reset Filter" onclick="app.resetFilters()">
+                    <button class="btn btn-secondary" title="Reset Filter" onclick="app.resetFilters()"
+                        style="padding: 8px 16px;">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                             stroke-linecap="round" stroke-linejoin="round">
                             <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
                             <path d="M3 3v5h5"></path>
                         </svg>
+                        <span>Reset</span>
                     </button>
                 </div>
             </div>
