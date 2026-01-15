@@ -1196,6 +1196,9 @@
     <!-- Toast -->
     <div id="toast" class="toast">Pesan notifikasi</div>
 
+    <!-- Optimized IndexedDB Manager -->
+    <script src="OptimizedDB.js"></script>
+
     <script>
         /**
          * ============================================================
@@ -1991,21 +1994,42 @@
                 }
             },
 
-            backupData() {
+            async backupData() {
                 try {
-                    const dataStr = JSON.stringify(this.data, null, 2);
+                    this.showToast('Sedang membuat backup...');
+
+                    // Fetch all data from OptimizedDB
+                    const entries = await this.db.getAllEntries();
+                    const images = await this.db.getAllImages();
+
+                    // Create V2 Backup Object
+                    const backup = {
+                        version: 2,
+                        timestamp: new Date().toISOString(),
+                        stats: {
+                            entries: entries.length,
+                            images: images.length
+                        },
+                        entries: entries,
+                        images: images
+                    };
+
+                    const dataStr = JSON.stringify(backup, null, 2);
                     const blob = new Blob([dataStr], { type: 'application/json' });
                     const url = URL.createObjectURL(blob);
+
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = `journal_finance_backup_${new Date().toISOString().slice(0, 10)}.json`;
+                    a.download = `journal_finance_backup_v2_${new Date().toISOString().slice(0, 10)}.json`;
                     document.body.appendChild(a);
                     a.click();
                     document.body.removeChild(a);
                     URL.revokeObjectURL(url);
-                    this.showToast('Backup berhasil di-download');
+
+                    this.showToast('✅ Full Backup (Data + Gambar) berhasil di-download');
                 } catch (e) {
-                    this.showToast('Gagal membuat backup');
+                    console.error('Backup error:', e);
+                    this.showToast('❌ Gagal membuat backup: ' + e.message);
                 }
             },
 
@@ -2016,27 +2040,62 @@
                 const reader = new FileReader();
                 reader.onload = async (e) => {
                     try {
+                        this.showToast('⏳ Memproses restore data...');
                         const json = JSON.parse(e.target.result);
-                        if (Array.isArray(json)) {
-                            this.data = json;
 
-                            // Save to IndexedDB
-                            await this.db.saveAll(this.data);
+                        // Scenario 1: V2 Backup (Object with entries & images)
+                        if (json.version === 2 && json.entries) {
+                            console.log(`📦 Restoring V2 Backup: ${json.entries.length} entries, ${json.images ? json.images.length : 0} images`);
 
-                            // Also save to localStorage as backup (if space permits)
-                            try {
-                                localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.data));
-                            } catch (e) {
-                                console.warn('localStorage full during restore, data saved to IndexedDB');
+                            // Restore Entries
+                            await this.db.bulkSaveEntries(json.entries);
+
+                            // Restore Images
+                            if (json.images && Array.isArray(json.images)) {
+                                let imgCount = 0;
+                                for (const img of json.images) {
+                                    if (img.entryId && img.data) {
+                                        await this.db.saveImage(img.entryId, img.data);
+                                        imgCount++;
+                                    }
+                                }
+                                console.log(`✅ Restored ${imgCount} images`);
                             }
 
-                            this.renderList();
-                            this.showToast(`✅ ${json.length} data berhasil dipulihkan!`);
-                        } else {
-                            throw new Error('Format file harus Array JSON');
+                            this.showToast(`✅ Restore Berhasil: ${json.entries.length} data dipulihkan`);
                         }
+                        // Scenario 2: V1 Backup (Array of entries)
+                        else if (Array.isArray(json)) {
+                            console.log(`📦 Restoring V1 Backup: ${json.length} entries`);
+                            let importedCount = 0;
+
+                            for (const item of json) {
+                                // Handle inline images from V1
+                                const imageData = item.image;
+                                if (imageData) {
+                                    await this.db.saveImage(item.id, imageData);
+                                    item.hasImage = true;
+                                    delete item.image; // Remove inline
+                                }
+
+                                await this.db.saveEntry(item);
+                                importedCount++;
+                            }
+
+                            this.showToast(`✅ Restore V1 Berhasil: ${importedCount} data dipulihkan`);
+                        }
+                        else {
+                            throw new Error('Format file backup tidak dikenali');
+                        }
+
+                        // Refresh UI
+                        this.data = await this.db.getAllEntries();
+                        this.renderList();
+                        this.logStorageStats();
+
                     } catch (err) {
-                        alert('Error membaca file: ' + err.message);
+                        console.error('Restore error:', err);
+                        alert('❌ Error saat restore: ' + err.message);
                     }
                     input.value = ''; // Reset input
                 };
