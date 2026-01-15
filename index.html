@@ -4,11 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JournalFinance - Catatan Harian Investasi & Keuangan</title>
-    <meta name="description"
-        content="Aplikasi jurnal keuangan pribadi yang modern, aman, dan offline-ready. Catat saham, kripto, dan peristiwa penting Anda.">
-    <meta name="keywords" content="journal, finance, investasi, saham, kripto, catatan keuangan, pwa">
-    <meta name="author" content="JournalFinance Team">
+    <title>JournalFinance</title>
     <!-- Import Google Fonts: Outfit for Headings, Inter for Body -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -388,30 +384,7 @@
             height: 38px;
             font-size: 0.9rem;
             color: var(--text-main);
-            flex: 1;
-            /* Allow flexible width */
-            text-align: center;
-            /* Center date text */
-            position: relative;
-            min-width: 0;
-            /* Fix flex overflow */
-        }
-
-        /* Fake Placeholder for Date Inputs */
-        .date-input:required:invalid::-webkit-datetime-edit {
-            color: transparent;
-        }
-
-        .date-input:required:invalid::before {
-            content: attr(placeholder);
-            color: var(--text-muted);
-            position: absolute;
-            left: 50%;
-            top: 50%;
-            transform: translate(-50%, -50%);
-            pointer-events: none;
-            /* Click goes through to input */
-            white-space: nowrap;
+            width: 130px;
         }
 
         .date-separator {
@@ -423,35 +396,6 @@
         .filter-actions {
             display: flex;
             gap: 8px;
-        }
-
-        /* --- Stats Bar --- */
-        .stats-bar {
-            display: flex;
-            gap: 12px;
-            margin-bottom: 24px;
-            font-size: 0.9rem;
-            color: var(--text-muted);
-            animation: fadeIn 0.6s ease-out forwards;
-            flex-wrap: wrap;
-        }
-
-        .stat-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            background: var(--bg-card);
-            padding: 8px 16px;
-            border-radius: 99px;
-            border: 1px solid var(--border-color);
-            box-shadow: var(--shadow-sm);
-            backdrop-filter: blur(10px);
-        }
-
-        .stat-value {
-            color: var(--primary);
-            font-weight: 800;
-            font-family: var(--font-display);
         }
 
         /* --- Journal List --- */
@@ -812,38 +756,8 @@
 
             .controls-bar .filter-actions {
                 order: 4;
-                width: 100%;
-                display: flex;
-                gap: 8px;
-            }
-
-            /* Make buttons share width equally on mobile */
-            .controls-bar .filter-actions button {
-                flex: 1;
                 justify-content: center;
-                padding: 10px 4px !important;
-                /* Override inline padding */
-                font-size: 0.85rem;
-            }
-
-            /* Buttons SVG adjustments for mobile */
-            .controls-bar .filter-actions button svg {
-                width: 16px;
-                height: 16px;
-                margin-right: 4px;
-            }
-
-            /* Date Group full width */
-            .controls-bar .date-group {
-                width: 100%;
-                display: flex;
-                justify-content: space-between;
-            }
-
-            .date-input {
-                width: 46%;
-                /* Share space with separator */
-                text-align: center;
+                /* Center actions */
             }
 
             /* Adjust Category Select width */
@@ -869,7 +783,9 @@
             align-items: center;
         }
 
-
+        .desktop-only {
+            /* Text always visible now */
+        }
 
         /* Toast */
         .toast {
@@ -970,43 +886,37 @@
                     </select>
                 </div>
                 <div class="filter-group date-group">
-                    <input type="date" id="dateStart" class="date-input" onchange="app.renderList()" placeholder="Dari"
-                        required>
+                    <input type="date" id="dateStart" class="date-input" onchange="app.renderList()" lang="id">
                     <span class="date-separator">-</span>
-                    <input type="date" id="dateEnd" class="date-input" onchange="app.renderList()" placeholder="Sampai"
-                        required>
+                    <input type="date" id="dateEnd" class="date-input" onchange="app.renderList()" lang="id">
                 </div>
-                <div class="filter-actions" style="display:flex; gap:8px;">
-                    <button class="btn" title="Salin Catatan" onclick="app.copyText()"
-                        style="color: #25D366; border-color: rgba(37, 211, 102, 0.4); background-color: rgba(37, 211, 102, 0.05); padding: 8px 16px;">
+                <div class="filter-actions">
+                    <button class="btn-icon" title="Salin Catatan" onclick="app.copyText()"
+                        style="color: #25D366; border-color: rgba(37, 211, 102, 0.4); background-color: rgba(37, 211, 102, 0.05);">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                             stroke-linecap="round" stroke-linejoin="round">
                             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                         </svg>
-                        <span>Copy</span>
                     </button>
-                    <button class="btn btn-secondary" title="Download TXT (Sesuai Filter)" onclick="app.downloadTxt()"
-                        style="padding: 8px 16px;">
-                        <span>Download</span>
+                    <button class="btn-icon" title="Download TXT (Sesuai Filter)" onclick="app.downloadTxt()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="7 10 12 15 17 10"></polyline>
+                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                        </svg>
                     </button>
-                    <button class="btn btn-secondary" title="Reset Filter" onclick="app.resetFilters()"
-                        style="padding: 8px 16px;">
+                    <button class="btn-icon" title="Reset Filter" onclick="app.resetFilters()">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                             stroke-linecap="round" stroke-linejoin="round">
                             <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
                             <path d="M3 3v5h5"></path>
                         </svg>
-                        <span>Reset</span>
                     </button>
                 </div>
             </div>
         </header>
-
-        <!-- Stats Bar -->
-        <div id="statsBar" class="stats-bar">
-            <!-- Stats injected by JS -->
-        </div>
 
         <!-- Main List -->
         <main id="journalList" class="journal-list">
@@ -1075,24 +985,26 @@
                 <!-- Toggles -->
                 <div
                     style="display: flex; gap: 24px; padding: 12px; background: var(--input-bg); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
-                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                    <div style="display: flex; align-items: center; gap: 10px; cursor: pointer;"
+                        onclick="document.getElementById('entryHighlight').click()">
                         <input type="checkbox" id="entryHighlight"
                             style="width: 18px; height: 18px; accent-color: var(--accent-highlight); cursor: pointer;">
                         <span style="font-weight: 600; font-size: 0.9rem;">Highlight (Penting)</span>
-                    </label>
-                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 10px; cursor: pointer;"
+                        onclick="document.getElementById('entryPin').click()">
                         <input type="checkbox" id="entryPin"
                             style="width: 18px; height: 18px; accent-color: var(--primary); cursor: pointer;">
                         <span style="font-weight: 600; font-size: 0.9rem;">Pin (Sematkan)</span>
-                    </label>
+                    </div>
                 </div>
 
                 <!-- Image Upload Area -->
                 <div class="form-group" style="margin-bottom:0;">
                     <label class="form-label">Gambar (Opsional)</label>
                     <div style="border: 2px dashed var(--border-color); padding: 24px; border-radius: var(--radius-md); text-align: center; transition: all 0.2s; background: var(--bg-card);"
-                        ondragover="this.style.borderColor='var(--primary)'; return false;"
-                        ondragleave="this.style.borderColor='var(--border-color)'; return false;">
+                        ondragover="this.style.borderColor=var(--primary); return false;"
+                        ondragleave="this.style.borderColor=var(--border-color); return false;">
 
                         <input type="file" id="entryImage" accept="image/*" style="display: none;"
                             onchange="app.handleImagePreview(this)">
@@ -1111,8 +1023,8 @@
                                 onclick="document.getElementById('entryImage').click()">
                                 Pilih Gambar
                             </button>
-                            <p style="color: var(--text-muted); font-size: 0.75rem; margin-top: 8px;">Otomatis Kompres
-                                (Hemat Memori)<br>Kuota browser terbatas (est. 30-50 foto)</p>
+                            <p style="color: var(--text-muted); font-size: 0.75rem; margin-top: 8px;">Maksimal 2MB
+                                (Disimpan Lokal)</p>
                         </div>
 
                         <!-- Preview State -->
@@ -1180,7 +1092,6 @@
             data: [],
             STORAGE_KEY: 'journalFinanceData',
             deleteTargetId: null,
-            closeTimeout: null,
 
             init() {
                 try {
@@ -1258,53 +1169,11 @@
 
             // --- Image Handling ---
 
-            // --- Image Handling (Auto-Compress) ---
-            processImage(file) {
+            readImageAsBase64(file) {
                 return new Promise((resolve, reject) => {
-                    // Hard Reject excessively large files > 10MB to save memory
-                    if (file.size > 10 * 1024 * 1024) {
-                        reject(new Error('Ukuran file terlalu besar (>10MB).'));
-                        return;
-                    }
-
                     const reader = new FileReader();
-                    reader.onload = (e) => {
-                        const img = new Image();
-                        img.onload = () => {
-                            // Resize logic: Max 800px dimension
-                            const canvas = document.createElement('canvas');
-                            let width = img.width;
-                            let height = img.height;
-                            const MAX_DIM = 800;
-
-                            if (width > height) {
-                                if (width > MAX_DIM) {
-                                    height *= MAX_DIM / width;
-                                    width = MAX_DIM;
-                                }
-                            } else {
-                                if (height > MAX_DIM) {
-                                    width *= MAX_DIM / height;
-                                    height = MAX_DIM;
-                                }
-                            }
-
-                            canvas.width = width;
-                            canvas.height = height;
-                            const ctx = canvas.getContext('2d');
-                            ctx.imageSmoothingEnabled = true;
-                            ctx.imageSmoothingQuality = 'high';
-                            ctx.drawImage(img, 0, 0, width, height);
-
-                            // Compress to JPEG 0.7 (Good balance for storage)
-                            // This reduces 2MB PNGs to ~100KB JPEGs
-                            const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
-                            resolve(dataUrl);
-                        };
-                        img.onerror = () => reject(new Error('Format gambar tidak didukung.'));
-                        img.src = e.target.result;
-                    };
-                    reader.onerror = () => reject(new Error('Gagal membaca file.'));
+                    reader.onload = event => resolve(event.target.result);
+                    reader.onerror = error => reject(error);
                     reader.readAsDataURL(file);
                 });
             },
@@ -1313,11 +1182,11 @@
                 const file = input.files[0];
                 if (file) {
                     document.getElementById('imageFileName').innerText = file.name;
-                    // Preview raw first for speed, processing happens on save
                     const reader = new FileReader();
                     reader.onload = (e) => {
                         const img = document.getElementById('imagePreview');
                         img.src = e.target.result;
+
                         // Toggle Views
                         document.getElementById('uploadPlaceholder').style.display = 'none';
                         document.getElementById('previewContainer').style.display = 'block';
@@ -1354,16 +1223,22 @@
                 const fileInput = document.getElementById('entryImage');
                 let imageData = null;
 
-                // Process Image with Compression
+                // Process Image
                 if (fileInput.files.length > 0) {
                     const file = fileInput.files[0];
+                    // Optional Safety Warning for LocalStorage
+                    if (file.size > 2000000) { // 2MB
+                        if (!confirm('Ukuran gambar > 2MB. Penyimpanan browser (LocalStorage) mungkin akan cepat penuh dan gagal menyimpan. Lanjutkan?')) {
+                            return;
+                        }
+                    }
+
                     try {
-                        this.showToast('Mengoptimalkan gambar...');
-                        imageData = await this.processImage(file);
+                        this.showToast('Memproses gambar asli...');
+                        imageData = await this.readImageAsBase64(file);
                     } catch (e) {
                         console.error(e);
-                        this.showToast('Gagal memproses gambar: ' + e.message);
-                        return; // Stop save if image fail
+                        this.showToast('Gagal memproses gambar');
                     }
                 } else if (id && !this.pendingImageClear) {
                     // Keep existing image if not cleared
@@ -1484,26 +1359,6 @@
                 const listContainer = document.getElementById('journalList');
                 const filtered = this.getFilteredData();
 
-                // Update Stats
-                const totalNotes = filtered.length;
-                const totalImages = filtered.filter(i => i.image).length;
-                const statsEl = document.getElementById('statsBar');
-
-                if (statsEl) {
-                    statsEl.innerHTML = `
-                        <div class="stat-item">
-                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-                            <span>Catatan:</span>
-                            <span class="stat-value">${totalNotes}</span>
-                        </div>
-                        <div class="stat-item">
-                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-                            <span>Gambar:</span>
-                            <span class="stat-value">${totalImages}</span>
-                        </div>
-                    `;
-                }
-
                 listContainer.innerHTML = '';
 
                 if (filtered.length === 0) {
@@ -1521,6 +1376,9 @@
                     // Sanitize ID (Strict alphanumeric + hyphens only to prevent JS injection)
                     const rawId = String(item.id);
                     const cleanId = rawId.replace(/[^a-zA-Z0-9_-]/g, '');
+
+                    // If ID was modified during cleaning (meaning it had bad chars), we use the clean one for the UI actions to be safe.
+                    // Ideally we should sanitize data on input, but this is a fail-safe render.
 
                     card.className = `journal-card ${item.highlight ? 'highlighted' : ''}`;
 
@@ -1542,18 +1400,18 @@
                                 </div>
                             </div>
                             <div class="card-actions">
-                                <button class="btn-icon action-star ${isHigh ? 'active' : ''}" onclick="app.toggleHighlight('${cleanId}')" title="Highlight" aria-label="Highlight Catatan">
+                                <button class="btn-icon action-star ${isHigh ? 'active' : ''}" onclick="app.toggleHighlight('${cleanId}')" title="Highlight">
                                     <svg viewBox="0 0 24 24" fill="${isHigh ? 'currentColor' : 'none'}" stroke="${isHigh ? 'none' : 'currentColor'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
                                 </button>
-                                <button class="btn-icon action-edit" onclick="app.editEntry('${cleanId}')" title="Edit" aria-label="Edit Catatan">
+                                <button class="btn-icon action-edit" onclick="app.editEntry('${cleanId}')" title="Edit">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
                                 </button>
-                                <button class="btn-icon action-pin ${item.pinned ? 'active' : ''}" onclick="app.togglePin('${cleanId}')" title="${item.pinned ? 'Unpin' : 'Pin'}" aria-label="${item.pinned ? 'Unpin Catatan' : 'Pin Catatan'}">
+                                <button class="btn-icon action-pin ${item.pinned ? 'active' : ''}" onclick="app.togglePin('${cleanId}')" title="${item.pinned ? 'Unpin' : 'Pin'}">
                                      <svg viewBox="0 0 24 24" fill="${item.pinned ? 'currentColor' : 'none'}" stroke="${item.pinned ? 'none' : 'currentColor'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                         <line x1="12" y1="17" x2="12" y2="22"></line><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"></path>
                                      </svg>
                                 </button>
-                                <button class="btn-icon action-delete" onclick="app.initiateDelete('${cleanId}')" title="Hapus" aria-label="Hapus Catatan">
+                                <button class="btn-icon action-delete" onclick="app.initiateDelete('${cleanId}')" title="Hapus">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
                                 </button>
                             </div>
@@ -1581,25 +1439,19 @@
             // --- UI Helper Methods ---
 
             openModal(isEdit = false) {
-                if (this.closeTimeout) {
-                    clearTimeout(this.closeTimeout);
-                    this.closeTimeout = null;
-                }
-
                 const modal = document.getElementById('entryModal');
                 modal.classList.add('open');
 
+                // If not editing, reset form for new entry
                 if (!isEdit) {
-                    document.getElementById('entryForm').reset();
-                    document.getElementById('entryId').value = '';
-                    document.getElementById('modalTitle').innerText = 'Tambah Catatan Baru';
-                    this.clearImage();
-
-                    const d = new Date();
-                    const year = d.getFullYear();
-                    const month = String(d.getMonth() + 1).padStart(2, '0');
-                    const day = String(d.getDate()).padStart(2, '0');
-                    document.getElementById('entryDate').value = `${year}-${month}-${day}`;
+                    if (!document.getElementById('entryId').value) {
+                        document.getElementById('modalTitle').innerText = 'Tambah Catatan Baru';
+                        this.clearImage();
+                        // Set Local Date Correctly
+                        const d = new Date();
+                        const localISOTime = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 10);
+                        document.getElementById('entryDate').value = localISOTime;
+                    }
                 }
             },
 
@@ -1607,8 +1459,7 @@
                 const modal = document.getElementById('entryModal');
                 modal.classList.remove('open');
 
-                if (this.closeTimeout) clearTimeout(this.closeTimeout);
-                this.closeTimeout = setTimeout(() => {
+                setTimeout(() => {
                     document.getElementById('entryForm').reset();
                     document.getElementById('entryId').value = '';
                     document.getElementById('modalTitle').innerText = 'Tambah Catatan Baru';
@@ -1641,8 +1492,11 @@
 
                     return matchSearch && matchType && matchDate;
                 }).sort((a, b) => {
+                    // Sort by Pinned First
                     if (a.pinned && !b.pinned) return -1;
                     if (!a.pinned && b.pinned) return 1;
+
+                    // Then by Date Descending
                     const timeA = new Date(a.date).getTime();
                     const timeB = new Date(b.date).getTime();
                     return timeB - timeA;
@@ -1674,6 +1528,7 @@
                 const a = document.createElement('a');
                 a.href = url;
 
+                // Dynamic filename extraction
                 const startDate = document.getElementById('dateStart').value;
                 const endDate = document.getElementById('dateEnd').value;
                 const today = new Date().toISOString().split('T')[0];
@@ -1698,11 +1553,15 @@
                     this.showToast('Tidak ada data untuk disalin');
                     return;
                 }
+
                 const content = this.generateTxtContent(filtered);
+
+                // Robust Copy Logic supporting file:// protocol
                 if (navigator.clipboard && navigator.clipboard.writeText) {
                     navigator.clipboard.writeText(content).then(() => {
                         this.showToast('Catatan berhasil disalin ke Clipboard!');
                     }).catch(err => {
+                        console.warn('Modern API failed, switching to fallback', err);
                         this.fallbackCopyText(content);
                     });
                 } else {
@@ -1714,19 +1573,27 @@
                 try {
                     const textArea = document.createElement("textarea");
                     textArea.value = text;
+
+                    // Make it invisible but part of DOM
+                    textArea.style.top = "0";
+                    textArea.style.left = "0";
                     textArea.style.position = "fixed";
                     textArea.style.opacity = "0";
+
                     document.body.appendChild(textArea);
                     textArea.focus();
                     textArea.select();
+
                     const successful = document.execCommand('copy');
                     document.body.removeChild(textArea);
+
                     if (successful) {
                         this.showToast('Catatan berhasil disalin!');
                     } else {
                         this.showToast('Gagal menyalin: Izin browser ditolak');
                     }
                 } catch (err) {
+                    console.error('Fallback copy failed', err);
                     this.showToast('Gagal menyalin total');
                 }
             },
@@ -1738,6 +1605,106 @@
                 document.getElementById('dateEnd').value = '';
                 this.renderList();
                 this.showToast('Filter di-reset');
+            },
+
+            // --- Theme & Imports ---
+            async runQASuite() {
+                console.clear();
+                console.group('🛡️ JournalFinance QA Audit System');
+                console.log('Starting automated test suite...');
+
+                const report = { passed: 0, failed: 0, logs: [] };
+                const assert = (desc, condition) => {
+                    if (condition) {
+                        console.log(`%c[PASS] ${desc}`, 'color: #10b981; font-weight: bold;');
+                        report.passed++;
+                    } else {
+                        console.error(`%c[FAIL] ${desc}`, 'color: #ef4444; font-weight: bold;');
+                        report.failed++;
+                        report.logs.push(desc);
+                    }
+                };
+
+                // 1. Unit Tests
+                console.group('1. Unit Tests');
+                assert('Data initialized as array', Array.isArray(this.data));
+                assert('Date Formatting', this.formatDate('2025-01-01').includes('2025'));
+                // Test for undefined/null safety
+                assert('Format Date handles null', this.formatDate(null) === '-');
+                assert('Escape HTML works', this.escapeHtml('<script>') === '&lt;script&gt;');
+                console.groupEnd();
+
+                // 2. Integration: CRUD Flow
+                console.group('2. Integration Tests (CRUD & Export)');
+                const startLen = this.data.length;
+                const testId = 'qa-' + Date.now();
+
+                // CREATE
+                const testEntry = {
+                    id: testId,
+                    date: '2025-12-31',
+                    type: 'saham',
+                    title: 'QA_TEST_ITEM_UNIQUE',
+                    reason: 'Testing Logic',
+                    highlight: true,
+                    timestamp: Date.now()
+                };
+
+                // Simulate Adding
+                this.data.unshift(testEntry);
+                this.saveData(); // Should trigger render
+
+                assert('Create: Count incremented', this.data.length === startLen + 1);
+
+                // Wait for DOM
+                await new Promise(r => setTimeout(r, 100));
+                const domContent = document.getElementById('journalList').innerHTML;
+                assert('Create: Item Rendered in DOM', domContent.includes('QA_TEST_ITEM_UNIQUE'));
+
+                // EXPORT & COPY SIMULATION
+                const txtOutput = this.generateTxtContent(this.getFilteredData());
+                assert('Export: Generated TXT contains title', txtOutput.includes('QA_TEST_ITEM_UNIQUE'));
+                assert('Export: Generated TXT contains date', txtOutput.includes('2025'));
+
+                // EDIT
+                const itemRef = this.data.find(i => i.id === testId);
+                if (itemRef) {
+                    itemRef.title = 'QA_TEST_EDITED';
+                    this.saveData();
+                    await new Promise(r => setTimeout(r, 100));
+                    const domEdited = document.getElementById('journalList').innerHTML;
+                    assert('Edit: Update reflected in Data', this.data.find(i => i.id === testId).title === 'QA_TEST_EDITED');
+                    assert('Edit: Update reflected in DOM', domEdited.includes('QA_TEST_EDITED'));
+                } else {
+                    assert('Edit: Item found', false);
+                }
+
+                // DELETE
+                this.data = this.data.filter(i => i.id !== testId);
+                this.saveData();
+                await new Promise(r => setTimeout(r, 100));
+
+                assert('Delete: Count restored', this.data.length === startLen);
+                assert('Delete: Item removed from DOM', !document.getElementById('journalList').innerHTML.includes('QA_TEST_EDITED'));
+                console.groupEnd();
+
+                // 3. UI/UX Tests
+                console.group('3. UI/UX Checks');
+                assert('Theme Attribute Present', document.body.hasAttribute('data-theme'));
+                assert('Modal Hidden by default', !document.getElementById('entryModal').classList.contains('open'));
+                const searchInput = document.getElementById('searchInput');
+                assert('Search Input exists', !!searchInput);
+                console.groupEnd();
+
+                // Final Report
+                console.groupEnd();
+                console.log(`%c🏁 TEST COMPLETE: ${report.passed} Passed, ${report.failed} Failed`, 'font-size: 1.2em; padding: 10px; background: #333; color: white;');
+
+                if (report.failed === 0) {
+                    this.showToast('✅ QA Passed: All Systems Normal');
+                } else {
+                    this.showToast('❌ QA Failed: Check Console');
+                }
             },
 
             // --- Theme & Imports ---

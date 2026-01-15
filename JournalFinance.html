@@ -1112,7 +1112,7 @@
                                 Pilih Gambar
                             </button>
                             <p style="color: var(--text-muted); font-size: 0.75rem; margin-top: 8px;">Otomatis Kompres
-                                (Hemat Memori)<br>Kuota browser terbatas (est. 30-50 foto)</p>
+                                (Hemat Memori)<br>IndexedDB Storage (ratusan foto)</p>
                         </div>
 
                         <!-- Preview State -->
@@ -1174,41 +1174,251 @@
 
     <script>
         /**
-         * JournalFinance App Logic - Production Ready
+         * IndexedDB Helper Class
+         * Provides large-capacity storage for JournalFinance (hundreds of MB/GB)
+         */
+        class JournalDB {
+            constructor() {
+                this.dbName = 'JournalFinanceDB';
+                this.dbVersion = 1;
+                this.storeName = 'entries';
+                this.db = null;
+            }
+
+            /**
+             * Open database connection
+             */
+            async open() {
+                return new Promise((resolve, reject) => {
+                    const request = indexedDB.open(this.dbName, this.dbVersion);
+
+                    request.onerror = () => {
+                        console.error('IndexedDB Error:', request.error);
+                        reject(request.error);
+                    };
+
+                    request.onsuccess = () => {
+                        this.db = request.result;
+                        console.log('✅ IndexedDB opened successfully');
+                        resolve(this.db);
+                    };
+
+                    request.onupgradeneeded = (event) => {
+                        const db = event.target.result;
+
+                        // Create object store if it doesn't exist
+                        if (!db.objectStoreNames.contains(this.storeName)) {
+                            const objectStore = db.createObjectStore(this.storeName, { keyPath: 'id' });
+
+                            // Create indexes for efficient querying
+                            objectStore.createIndex('date', 'date', { unique: false });
+                            objectStore.createIndex('type', 'type', { unique: false });
+                            objectStore.createIndex('timestamp', 'timestamp', { unique: false });
+                            objectStore.createIndex('pinned', 'pinned', { unique: false });
+                            objectStore.createIndex('highlight', 'highlight', { unique: false });
+
+                            console.log('📦 ObjectStore created with indexes');
+                        }
+                    };
+                });
+            }
+
+            /**
+             * Get all entries from database
+             */
+            async getAll() {
+                if (!this.db) await this.open();
+
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction([this.storeName], 'readonly');
+                    const objectStore = transaction.objectStore(this.storeName);
+                    const request = objectStore.getAll();
+
+                    request.onsuccess = () => {
+                        resolve(request.result || []);
+                    };
+
+                    request.onerror = () => {
+                        console.error('Get all error:', request.error);
+                        reject(request.error);
+                    };
+                });
+            }
+
+            /**
+             * Save single entry to database
+             */
+            async save(entry) {
+                if (!this.db) await this.open();
+
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction([this.storeName], 'readwrite');
+                    const objectStore = transaction.objectStore(this.storeName);
+                    const request = objectStore.put(entry);
+
+                    request.onsuccess = () => {
+                        resolve(request.result);
+                    };
+
+                    request.onerror = () => {
+                        console.error('Save error:', request.error);
+                        reject(request.error);
+                    };
+                });
+            }
+
+            /**
+             * Save multiple entries (bulk operation)
+             */
+            async saveAll(entries) {
+                if (!this.db) await this.open();
+
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction([this.storeName], 'readwrite');
+                    const objectStore = transaction.objectStore(this.storeName);
+
+                    // Clear existing data first
+                    objectStore.clear();
+
+                    // Add all entries
+                    entries.forEach(entry => {
+                        objectStore.add(entry);
+                    });
+
+                    transaction.oncomplete = () => {
+                        console.log('✅ All entries saved successfully');
+                        resolve();
+                    };
+
+                    transaction.onerror = () => {
+                        console.error('Save all error:', transaction.error);
+                        reject(transaction.error);
+                    };
+                });
+            }
+
+            /**
+             * Delete entry by ID
+             */
+            async delete(id) {
+                if (!this.db) await this.open();
+
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction([this.storeName], 'readwrite');
+                    const objectStore = transaction.objectStore(this.storeName);
+                    const request = objectStore.delete(String(id));
+
+                    request.onsuccess = () => {
+                        resolve();
+                    };
+
+                    request.onerror = () => {
+                        console.error('Delete error:', request.error);
+                        reject(request.error);
+                    };
+                });
+            }
+
+            /**
+             * Clear all entries
+             */
+            async clear() {
+                if (!this.db) await this.open();
+
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction([this.storeName], 'readwrite');
+                    const objectStore = transaction.objectStore(this.storeName);
+                    const request = objectStore.clear();
+
+                    request.onsuccess = () => {
+                        resolve();
+                    };
+
+                    request.onerror = () => {
+                        console.error('Clear error:', request.error);
+                        reject(request.error);
+                    };
+                });
+            }
+
+            /**
+             * Get storage usage estimate
+             */
+            async getStorageEstimate() {
+                if (navigator.storage && navigator.storage.estimate) {
+                    const estimate = await navigator.storage.estimate();
+                    return {
+                        usage: estimate.usage,
+                        quota: estimate.quota,
+                        usageInMB: (estimate.usage / (1024 * 1024)).toFixed(2),
+                        quotaInMB: (estimate.quota / (1024 * 1024)).toFixed(2),
+                        percentUsed: ((estimate.usage / estimate.quota) * 100).toFixed(2)
+                    };
+                }
+                return null;
+            }
+        }
+
+        /**
+         * JournalFinance App Logic - Production Ready with IndexedDB
          */
         window.app = {
             data: [],
-            STORAGE_KEY: 'journalFinanceData',
+            STORAGE_KEY: 'journalFinanceData', // Kept for backward compatibility
             deleteTargetId: null,
             closeTimeout: null,
+            db: new JournalDB(),
 
-            init() {
+            async init() {
                 try {
-                    // Safe LocalStorage Access
-                    const stored = localStorage.getItem(this.STORAGE_KEY);
-                    if (stored) {
-                        try {
-                            const parsed = JSON.parse(stored);
-                            // Validation: Must be an array
-                            if (Array.isArray(parsed)) {
-                                this.data = parsed;
-                            } else {
-                                console.warn('Data invalid (not an array). Resetting.');
-                                this.data = [];
+                    // Initialize IndexedDB
+                    await this.db.open();
+
+                    // Try to load from IndexedDB first
+                    this.data = await this.db.getAll();
+
+                    // Migration: If IndexedDB is empty, check localStorage
+                    if (this.data.length === 0) {
+                        console.log('🔄 Checking localStorage for migration...');
+                        const stored = localStorage.getItem(this.STORAGE_KEY);
+
+                        if (stored) {
+                            try {
+                                const parsed = JSON.parse(stored);
+                                if (Array.isArray(parsed) && parsed.length > 0) {
+                                    console.log(`📦 Migrating ${parsed.length} entries from localStorage to IndexedDB...`);
+                                    this.data = parsed;
+
+                                    // Save to IndexedDB
+                                    await this.db.saveAll(this.data);
+
+                                    // Clear localStorage to save space (optional - commented for safety)
+                                    // localStorage.removeItem(this.STORAGE_KEY);
+
+                                    this.showToast(`✅ Migrasi ${parsed.length} data ke IndexedDB berhasil!`);
+                                    console.log('✅ Migration complete!');
+                                }
+                            } catch (e) {
+                                console.warn('Migration parse error:', e);
                             }
-                        } catch (e) {
-                            console.warn('Data corrupt (parse error). Resetting.');
-                            this.data = [];
                         }
+                    } else {
+                        console.log(`📊 Loaded ${this.data.length} entries from IndexedDB`);
                     }
 
-                    // If empty (new or cleared), ensure it is an empty array
-                    if (!this.data) {
+                    // Validation: Ensure data is array
+                    if (!Array.isArray(this.data)) {
+                        console.warn('Data invalid (not an array). Resetting.');
                         this.data = [];
                     }
+
+                    // Show storage stats
+                    this.logStorageStats();
+
                 } catch (e) {
                     console.error('Core init error:', e);
                     this.data = []; // Ultimate fallback
+                    this.showToast('⚠️ Error loading data. Using empty dataset.');
                 }
 
                 // PWA: Service Worker
@@ -1234,6 +1444,18 @@
                 this.renderList();
             },
 
+            /**
+             * Log storage statistics to console
+             */
+            async logStorageStats() {
+                const stats = await this.db.getStorageEstimate();
+                if (stats) {
+                    console.log('💾 Storage Stats:');
+                    console.log(`   Used: ${stats.usageInMB} MB / ${stats.quotaInMB} MB (${stats.percentUsed}%)`);
+                    console.log(`   Available: ${(stats.quotaInMB - stats.usageInMB).toFixed(2)} MB`);
+                }
+            },
+
             deferredPrompt: null,
 
             async installApp() {
@@ -1246,12 +1468,26 @@
                 }
             },
 
-            saveData() {
+            /**
+             * Save data to IndexedDB
+             */
+            async saveData() {
                 try {
-                    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.data));
+                    // Save all entries to IndexedDB
+                    await this.db.saveAll(this.data);
+
+                    // Also keep a backup in localStorage (if space permits)
+                    try {
+                        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.data));
+                    } catch (e) {
+                        // localStorage full - not critical since we have IndexedDB
+                        console.warn('localStorage full, data saved to IndexedDB only');
+                    }
+
+                    this.logStorageStats();
                 } catch (e) {
                     console.error('Save Error:', e);
-                    this.showToast('Penyimpanan penuh atau diblokir browser.');
+                    this.showToast('❌ Error menyimpan data. Silakan coba lagi.');
                 }
                 this.renderList();
             },
@@ -1474,7 +1710,7 @@
 
             // --- UI Rendering ---
 
-            renderList() {
+            async renderList() {
                 // FALLBACK SAFETY: Ensure this.data is array
                 if (!Array.isArray(this.data)) {
                     console.warn('RenderList detected non-array data. Resetting.');
@@ -1484,12 +1720,31 @@
                 const listContainer = document.getElementById('journalList');
                 const filtered = this.getFilteredData();
 
-                // Update Stats
+                // Update Stats with Storage Info
                 const totalNotes = filtered.length;
                 const totalImages = filtered.filter(i => i.image).length;
                 const statsEl = document.getElementById('statsBar');
 
+                // Get storage stats
+                const storageStats = await this.db.getStorageEstimate();
+
                 if (statsEl) {
+                    let storageHTML = '';
+                    if (storageStats) {
+                        const color = storageStats.percentUsed > 80 ? '#ef4444' :
+                            storageStats.percentUsed > 50 ? '#f59e0b' :
+                                '#10b981';
+                        storageHTML = `
+                            <div class="stat-item">
+                                <svg viewBox="0 0 24 24" width="16" height="16" stroke="${color}" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                                </svg>
+                                <span>Storage:</span>
+                                <span class="stat-value" style="color: ${color}">${storageStats.usageInMB} / ${storageStats.quotaInMB} MB (${storageStats.percentUsed}%)</span>
+                            </div>
+                        `;
+                    }
+
                     statsEl.innerHTML = `
                         <div class="stat-item">
                             <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
@@ -1501,6 +1756,7 @@
                             <span>Gambar:</span>
                             <span class="stat-value">${totalImages}</span>
                         </div>
+                        ${storageHTML}
                     `;
                 }
 
@@ -1779,18 +2035,29 @@
                 }
             },
 
-            restoreData(input) {
+            async restoreData(input) {
                 const file = input.files[0];
                 if (!file) return;
 
                 const reader = new FileReader();
-                reader.onload = (e) => {
+                reader.onload = async (e) => {
                     try {
                         const json = JSON.parse(e.target.result);
                         if (Array.isArray(json)) {
                             this.data = json;
-                            this.saveData();
-                            this.showToast('Data berhasil dipulihkan!');
+
+                            // Save to IndexedDB
+                            await this.db.saveAll(this.data);
+
+                            // Also save to localStorage as backup (if space permits)
+                            try {
+                                localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.data));
+                            } catch (e) {
+                                console.warn('localStorage full during restore, data saved to IndexedDB');
+                            }
+
+                            this.renderList();
+                            this.showToast(`✅ ${json.length} data berhasil dipulihkan!`);
                         } else {
                             throw new Error('Format file harus Array JSON');
                         }
