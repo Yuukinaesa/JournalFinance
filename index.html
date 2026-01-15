@@ -911,6 +911,23 @@
             z-index: 2000;
         }
 
+        /* Skeleton Loader */
+        .image-skeleton {
+            background: linear-gradient(90deg, var(--bg-card) 25%, var(--bg-card-hover) 50%, var(--bg-card) 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+
+        @keyframes shimmer {
+            0% {
+                background-position: 200% 0;
+            }
+
+            100% {
+                background-position: -200% 0;
+            }
+        }
+
         .toast.show {
             opacity: 1;
             visibility: visible;
@@ -978,7 +995,7 @@
                         <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                     </svg>
                     <input type="text" id="searchInput" class="search-input"
-                        placeholder="Cari catatan, saham, atau peristiwa..." oninput="app.renderList()">
+                        placeholder="Cari catatan, saham, atau peristiwa..." oninput="app.onSearchInput()">
                 </div>
                 <div class="filter-group">
                     <select id="filterType" class="form-select" style="min-width: 150px; cursor: pointer;"
@@ -1196,8 +1213,7 @@
     <!-- Toast -->
     <div id="toast" class="toast">Pesan notifikasi</div>
 
-    <!-- Optimized IndexedDB Manager -->
-    <script src="OptimizedDB.js"></script>
+
 
     <script>
         /**
@@ -1546,9 +1562,8 @@
             async confirmDelete() {
                 if (this.deleteTargetId) {
                     try {
-                        // Delete from DB
-                        await this.db.deleteEntry(this.deleteTargetId);
-                        await this.db.deleteImage(this.deleteTargetId);
+                        // Atomic Delete (Entry + Image)
+                        await this.db.deleteFull(this.deleteTargetId);
 
                         // Remove from memory
                         this.data = this.data.filter(item => String(item.id) !== String(this.deleteTargetId));
@@ -1641,7 +1656,15 @@
                 }
             },
 
-            // --- UI Rendering ---
+            // --- UI Rendering & Optimization ---
+
+            debounceTimer: null,
+            onSearchInput() {
+                if (this.debounceTimer) clearTimeout(this.debounceTimer);
+                this.debounceTimer = setTimeout(() => {
+                    this.renderList();
+                }, 300);
+            },
 
             async renderList() {
                 // FALLBACK SAFETY: Ensure this.data is array
@@ -1694,6 +1717,7 @@
                     `;
                 }
 
+                // Clear current list
                 listContainer.innerHTML = '';
 
                 if (filtered.length === 0) {
@@ -1705,6 +1729,9 @@
                     `;
                     return;
                 }
+
+                // OPTIMIZATION: Use DocumentFragment to minimize reflows
+                const fragment = document.createDocumentFragment();
 
                 filtered.forEach(item => {
                     const card = document.createElement('div');
@@ -1759,8 +1786,11 @@
                             ` : ''}
     </div>
     `;
-                    listContainer.appendChild(card);
+                    fragment.appendChild(card);
                 });
+
+                // Append all at once
+                listContainer.appendChild(fragment);
 
                 // Load images lazily after DOM is ready
                 setTimeout(() => this.loadImagesLazy(), 100);

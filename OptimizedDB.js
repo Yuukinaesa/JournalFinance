@@ -164,6 +164,31 @@ class OptimizedJournalDB {
         });
     }
 
+    /**
+     * Atomically delete entry AND its associated image (Transaction Safe)
+     */
+    async deleteFull(id) {
+        if (!this.db) await this.open();
+
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.entryStore, this.imageStore], 'readwrite');
+
+            // Delete from both stores simultaneously
+            transaction.objectStore(this.entryStore).delete(String(id));
+            transaction.objectStore(this.imageStore).delete(String(id));
+
+            transaction.oncomplete = () => {
+                console.log('✅ Full delete usage (Entry + Image) for:', id);
+                resolve();
+            };
+
+            transaction.onerror = () => {
+                console.error('❌ Full delete error:', transaction.error);
+                reject(transaction.error);
+            };
+        });
+    }
+
     // ====================
     // IMAGE OPERATIONS (Separate Storage)
     // ====================
