@@ -1,0 +1,45 @@
+# Node modules
+node_modules/
+
+# OS Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-*
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Temp
+*.tmp
+.cache/
+.temp/
+
+# Build (if using build tools later)
+dist/
+build/
+
+# Documentation (development only)
+AUDIT_CRITICAL_FINDINGS.md
+REFACTORING_GUIDE.md
+CARA_CLEAR_STORAGE.md
+
+# Keep these for deployment
+!README.md
+!DEPLOYMENT_GUIDE.md
+!ACTION_PLAN.md
+!icons/
+!screenshots/
+!manifest.json
+!sw.js
+!OptimizedDB.js
+!index.html
