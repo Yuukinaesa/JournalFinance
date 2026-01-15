@@ -1734,6 +1734,7 @@
                         const color = storageStats.percentUsed > 80 ? '#ef4444' :
                             storageStats.percentUsed > 50 ? '#f59e0b' :
                                 '#10b981';
+<<<<<<< HEAD
 
                         // Format quota: show in GB if >= 1024 MB, otherwise MB
                         const quotaValue = parseFloat(storageStats.quotaInMB);
@@ -1741,13 +1742,20 @@
                             ? `${(quotaValue / 1024).toFixed(0)} GB`
                             : `${storageStats.quotaInMB} MB`;
 
+=======
+>>>>>>> 4129907783b3abcae23ea97b3f8a82084e566107
                         storageHTML = `
                             <div class="stat-item">
                                 <svg viewBox="0 0 24 24" width="16" height="16" stroke="${color}" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
                                     <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
                                 </svg>
+<<<<<<< HEAD
                                 <span>Storage terpakai:</span>
                                 <span class="stat-value" style="color: ${color}">${storageStats.usageInMB} MB dari ${quotaDisplay} (${storageStats.percentUsed}%)</span>
+=======
+                                <span>Storage:</span>
+                                <span class="stat-value" style="color: ${color}">${storageStats.usageInMB} / ${storageStats.quotaInMB} MB (${storageStats.percentUsed}%)</span>
+>>>>>>> 4129907783b3abcae23ea97b3f8a82084e566107
                             </div>
                         `;
                     }
@@ -2129,5 +2137,6 @@
         }
     </script>
 </body>
+
 
 </html>
