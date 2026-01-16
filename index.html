@@ -1194,7 +1194,8 @@
             <div style="margin-bottom: 16px;">
                 <div
                     style="width: 50px; height: 50px; background: rgba(239, 68, 68, 0.1); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: #ef4444; margin-bottom: 16px;">
-                    <svg viewBox="0 0 24 24" style="width: 24px; height: 24px;">
+                    <svg viewBox="0 0 24 24" style="width: 24px; height: 24px;" fill="none" stroke="currentColor"
+                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path
                             d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z">
                         </path>
@@ -2289,8 +2290,10 @@
         window.onclick = function (event) {
             const entryModal = document.getElementById('entryModal');
             const deleteModal = document.getElementById('deleteModal');
+            const resetModal = document.getElementById('resetModal');
             if (event.target == entryModal) app.closeModal();
             if (event.target == deleteModal) app.closeDeleteModal();
+            if (event.target == resetModal) app.closeResetModal();
         }
     </script>
 </body>

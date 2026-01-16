@@ -99,8 +99,20 @@ class OptimizedJournalDB {
 
     /**
      * Save/Update SINGLE entry (EFFICIENT - no full rewrite!)
+     * @param {Object} entry - Entry object with required 'id' field
+     * @throws {Error} If entry is invalid or missing required fields
      */
     async saveEntry(entry) {
+        // SECURITY: Input validation
+        if (!entry || typeof entry !== 'object') {
+            throw new Error('Invalid entry: must be an object');
+        }
+        if (!entry.id) {
+            throw new Error('Invalid entry: missing required id field');
+        }
+        // Ensure id is string for consistent indexing
+        entry.id = String(entry.id);
+
         if (!this.db) await this.open();
 
         return new Promise((resolve, reject) => {
@@ -123,8 +135,17 @@ class OptimizedJournalDB {
 
     /**
      * Bulk save entries (for import/restore ONLY)
+     * @param {Array} entries - Array of entry objects
      */
     async bulkSaveEntries(entries) {
+        // Handle empty array edge case
+        if (!Array.isArray(entries)) {
+            throw new Error('Invalid entries: must be an array');
+        }
+        if (entries.length === 0) {
+            return Promise.resolve(); // Nothing to save
+        }
+
         if (!this.db) await this.open();
 
         return new Promise((resolve, reject) => {
@@ -134,14 +155,28 @@ class OptimizedJournalDB {
             // Use PUT (upsert), NOT clear+add
             let completed = 0;
             const total = entries.length;
+            let hasError = false;
 
             entries.forEach(entry => {
+                // Validate each entry
+                if (!entry || !entry.id) {
+                    console.warn('Skipping invalid entry:', entry);
+                    completed++;
+                    if (completed === total && !hasError) resolve();
+                    return;
+                }
+                entry.id = String(entry.id); // Normalize ID
+
                 const request = store.put(entry);
                 request.onsuccess = () => {
                     completed++;
-                    if (completed === total) {
+                    if (completed === total && !hasError) {
                         resolve();
                     }
+                };
+                request.onerror = () => {
+                    hasError = true;
+                    console.error('Entry save error:', request.error);
                 };
             });
 

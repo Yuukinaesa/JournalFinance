@@ -189,8 +189,28 @@ async function trimCache(cacheName, maxSize) {
 
 /**
  * Message Event - Handle messages from app
+ * SECURITY: Origin verification to prevent cross-origin attacks
  */
 self.addEventListener('message', (event) => {
+    // SECURITY: Verify message origin - only accept from same origin
+    if (!event.source || !event.source.url) {
+        console.warn('SW: Rejecting message from unknown source');
+        return;
+    }
+
+    try {
+        const sourceOrigin = new URL(event.source.url).origin;
+        const swOrigin = new URL(self.location.href).origin;
+
+        if (sourceOrigin !== swOrigin) {
+            console.warn('SW: Rejecting cross-origin message from:', sourceOrigin);
+            return;
+        }
+    } catch (e) {
+        console.warn('SW: Invalid source URL, rejecting message');
+        return;
+    }
+
     if (event.data && event.data.type === 'SKIP_WAITING') {
         self.skipWaiting();
     }
