@@ -243,6 +243,24 @@ class OptimizedJournalDB {
     async saveImage(entryId, imageDataUrl) {
         if (!this.db) await this.open();
 
+        // SECURITY: Defense in Depth
+        // 1. Validate Type
+        if (typeof imageDataUrl !== 'string') {
+            throw new Error('Invalid image data: must be a string (Data URL)');
+        }
+
+        // 2. Validate Size (Max 15MB safe limit for IndexedDB)
+        if (imageDataUrl.length > 15 * 1024 * 1024) {
+            throw new Error('Image too large (>15MB). Please compress defined in app logic.');
+        }
+
+        // 3. Validate Format (Prevents XSS/SVG Injection at DB layer)
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+        const matches = imageDataUrl.match(/^data:(image\/[a-z]+);base64,/);
+        if (!matches || !allowedTypes.includes(matches[1])) {
+            throw new Error('Invalid or unsafe image format. Only JPEG, PNG, WEBP, GIF allowed.');
+        }
+
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction([this.imageStore], 'readwrite');
             const store = transaction.objectStore(this.imageStore);

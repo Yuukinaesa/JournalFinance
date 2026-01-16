@@ -1068,7 +1068,7 @@
     </div>
 
     <!-- Floating Action Button -->
-    <button class="fab" onclick="app.openModal()">
+    <button class="fab" onclick="app.openModal()" aria-label="Tambah Catatan Baru">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
             stroke-linejoin="round">
             <line x1="12" y1="5" x2="12" y2="19"></line>
@@ -1097,11 +1097,11 @@
                 <!-- Metadata Row -->
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
                     <div class="form-group" style="margin-bottom:0;">
-                        <label class="form-label">Tanggal</label>
+                        <label class="form-label" for="entryDate">Tanggal</label>
                         <input type="date" id="entryDate" class="form-input" required lang="id">
                     </div>
                     <div class="form-group" style="margin-bottom:0;">
-                        <label class="form-label">Kategori</label>
+                        <label class="form-label" for="entryType">Kategori</label>
                         <select id="entryType" class="form-select" required>
                             <option value="saham">Saham / Investasi</option>
                             <option value="kripto">Kripto</option>
@@ -1113,13 +1113,13 @@
                 </div>
 
                 <div class="form-group" style="margin-bottom:0;">
-                    <label class="form-label">Judul / Nama Asset</label>
+                    <label class="form-label" for="entryTitle">Judul / Nama Asset</label>
                     <input type="text" id="entryTitle" class="form-input" placeholder="Contoh: Beli BTC, Lulus Kuliah"
                         required style="font-weight: 600; font-size: 1.1rem;">
                 </div>
 
                 <div class="form-group" style="margin-bottom:0;">
-                    <label class="form-label">Catatan Detail</label>
+                    <label class="form-label" for="entryReason">Catatan Detail</label>
                     <textarea id="entryReason" class="form-textarea"
                         placeholder="Tuliskan alasan, analisa, atau detail peristiwa..."
                         style="min-height: 120px; line-height: 1.6;"></textarea>
@@ -1142,7 +1142,7 @@
 
                 <!-- Image Upload Area -->
                 <div class="form-group" style="margin-bottom:0;">
-                    <label class="form-label">Gambar (Opsional)</label>
+                    <label class="form-label" for="entryImage">Gambar (Opsional)</label>
                     <div style="border: 2px dashed var(--border-color); padding: 24px; border-radius: var(--radius-md); text-align: center; transition: all 0.2s; background: var(--bg-card);"
                         ondragover="this.style.borderColor='var(--primary)'; return false;"
                         ondragleave="this.style.borderColor='var(--border-color)'; return false;">
@@ -1904,10 +1904,16 @@
                             img.className = 'card-image';
                             img.style.cssText = 'width:100%; max-height:300px; object-fit:contain; border-radius:8px; border:1px solid var(--border-color); background:#000; animation: fadeIn 0.3s;';
                             // Validating that it looks like an image data URL
+                            const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+                            let mime = '';
                             if (typeof imageData === 'string' && imageData.startsWith('data:image/')) {
+                                mime = imageData.substring(5, imageData.indexOf(';'));
+                            }
+
+                            if (allowedTypes.includes(mime)) {
                                 img.src = imageData;
                             } else {
-                                throw new Error('Invalid image data format');
+                                throw new Error('Blocked: Unsafe or unknown image type ' + mime);
                             }
 
                             const btnContainer = document.createElement('div');
@@ -2207,8 +2213,16 @@
                                 for (const img of json.images) {
                                     // SECURITY VALIDATION: Ensure only valid image data URLs are restored
                                     if (img.entryId && img.data && typeof img.data === 'string' && img.data.startsWith('data:image/')) {
-                                        await this.db.saveImage(img.entryId, img.data);
-                                        imgCount++;
+                                        // Extra Security Layer for V2
+                                        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+                                        const mime = img.data.substring(5, img.data.indexOf(';'));
+
+                                        if (allowedTypes.includes(mime)) {
+                                            await this.db.saveImage(img.entryId, img.data);
+                                            imgCount++;
+                                        } else {
+                                            console.warn(`Skipping unsafe image in V2 import: ${mime}`);
+                                        }
                                     }
                                 }
                             }
@@ -2223,9 +2237,19 @@
                                 // Handle inline images from V1
                                 const imageData = item.image;
                                 if (imageData && typeof imageData === 'string' && imageData.startsWith('data:image/')) {
-                                    await this.db.saveImage(item.id, imageData);
-                                    item.hasImage = true;
-                                    delete item.image; // Remove inline
+                                    // SECURITY VALIDATION: Strict MIME Check for V1 Imports
+                                    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+                                    const mime = imageData.substring(5, imageData.indexOf(';'));
+
+                                    if (allowedTypes.includes(mime)) {
+                                        await this.db.saveImage(item.id, imageData);
+                                        item.hasImage = true;
+                                        delete item.image; // Remove inline
+                                    } else {
+                                        console.warn(`Skipping unsafe image type in import: ${mime}`);
+                                        delete item.image;
+                                        item.hasImage = false;
+                                    }
                                 } else if (imageData) {
                                     delete item.image;
                                 }
