@@ -46,9 +46,7 @@ class OptimizedJournalDB {
                 this.db.onversionchange = () => {
                     this.db.close();
                     this.db = null;
-                    console.warn('⚠️ DB Closed for version change');
                 };
-                console.log('✅ IndexedDB opened successfully (V2 Optimized)');
                 this.openPromise = null; // Cleanup
                 resolve(this.db);
             };
@@ -64,13 +62,11 @@ class OptimizedJournalDB {
                     entryStore.createIndex('timestamp', 'timestamp', { unique: false });
                     entryStore.createIndex('pinned', 'pinned', { unique: false });
                     entryStore.createIndex('highlight', 'highlight', { unique: false });
-                    console.log('📦 Created: entries store (text only)');
                 }
 
                 // Store 2: Images (separate blob storage)
                 if (!db.objectStoreNames.contains(this.imageStore)) {
                     db.createObjectStore(this.imageStore, { keyPath: 'entryId' });
-                    console.log('📦 Created: images store (blobs)');
                 }
             };
         });
@@ -95,7 +91,7 @@ class OptimizedJournalDB {
 
             request.onsuccess = () => resolve(request.result || []);
             request.onerror = () => {
-                console.error('❌ Get all entries error:', request.error);
+                console.error('Database Error:', request.error);
                 reject(request.error);
             };
         });
@@ -115,12 +111,11 @@ class OptimizedJournalDB {
             const request = store.put(entry);
 
             request.onsuccess = () => {
-                console.log('✅ Entry saved:', entry.id);
                 resolve(request.result);
             };
 
             request.onerror = () => {
-                console.error('❌ Save entry error:', request.error);
+                console.error('Database Save Error:', request.error);
                 reject(request.error);
             };
         });
@@ -145,14 +140,13 @@ class OptimizedJournalDB {
                 request.onsuccess = () => {
                     completed++;
                     if (completed === total) {
-                        console.log(`✅ Bulk saved ${total} entries`);
                         resolve();
                     }
                 };
             });
 
             transaction.onerror = () => {
-                console.error('❌ Bulk save error:', transaction.error);
+                console.error('Database Bulk Save Error:', transaction.error);
                 reject(transaction.error);
             };
         });
@@ -170,12 +164,11 @@ class OptimizedJournalDB {
             const request = store.delete(String(id));
 
             request.onsuccess = () => {
-                console.log('✅ Entry deleted:', id);
                 resolve();
             };
 
             request.onerror = () => {
-                console.error('❌ Delete entry error:', request.error);
+                console.error('Database Delete Error:', request.error);
                 reject(request.error);
             };
         });
@@ -195,12 +188,11 @@ class OptimizedJournalDB {
             transaction.objectStore(this.imageStore).delete(String(id));
 
             transaction.oncomplete = () => {
-                console.log('✅ Full delete usage (Entry + Image) for:', id);
                 resolve();
             };
 
             transaction.onerror = () => {
-                console.error('❌ Full delete error:', transaction.error);
+                console.error('Full Delete Error:', transaction.error);
                 reject(transaction.error);
             };
         });
@@ -229,12 +221,11 @@ class OptimizedJournalDB {
             const request = store.put(imageData);
 
             request.onsuccess = () => {
-                console.log('✅ Image saved for entry:', entryId);
                 resolve();
             };
 
             request.onerror = () => {
-                console.error('❌ Save image error:', request.error);
+                console.error('Image Save Error:', request.error);
                 reject(request.error);
             };
         });
@@ -257,7 +248,7 @@ class OptimizedJournalDB {
             };
 
             request.onerror = () => {
-                console.error('❌ Get image error:', request.error);
+                console.error('Image Load Error:', request.error);
                 reject(request.error);
             };
         });
@@ -275,12 +266,11 @@ class OptimizedJournalDB {
             const request = store.delete(String(entryId));
 
             request.onsuccess = () => {
-                console.log('✅ Image deleted for entry:', entryId);
                 resolve();
             };
 
             request.onerror = () => {
-                console.error('❌ Delete image error:', request.error);
+                console.error('Image Delete Error:', request.error);
                 reject(request.error);
             };
         });
@@ -299,7 +289,7 @@ class OptimizedJournalDB {
 
             request.onsuccess = () => resolve(request.result || []);
             request.onerror = () => {
-                console.error('❌ Get all images error:', request.error);
+                console.error('Get All Images Error:', request.error);
                 reject(request.error);
             };
         });
@@ -322,12 +312,11 @@ class OptimizedJournalDB {
             transaction.objectStore(this.imageStore).clear();
 
             transaction.oncomplete = () => {
-                console.log('✅ All data cleared');
                 resolve();
             };
 
             transaction.onerror = () => {
-                console.error('❌ Clear error:', transaction.error);
+                console.error('Clear DB Error:', transaction.error);
                 reject(transaction.error);
             };
         });

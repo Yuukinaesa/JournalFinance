@@ -4,6 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self';">
     <title>JournalFinance - Catatan Harian Investasi & Keuangan</title>
     <meta name="description"
         content="Aplikasi jurnal keuangan pribadi yang modern, aman, dan offline-ready. Catat saham, kripto, dan peristiwa penting Anda.">
@@ -1278,14 +1280,12 @@
 
                     // Migration: If IndexedDB V2 is empty, check for old data
                     if (this.data.length === 0) {
-                        console.log('🔄 Checking for migration data...');
                         const stored = localStorage.getItem(this.STORAGE_KEY);
 
                         if (stored) {
                             try {
                                 const parsed = JSON.parse(stored);
                                 if (Array.isArray(parsed) && parsed.length > 0) {
-                                    console.log(`📦 Migrating ${parsed.length} entries to OptimizedDB V2...`);
 
                                     // Process each entry for new architecture
                                     for (const entry of parsed) {
@@ -1312,19 +1312,15 @@
                                     localStorage.removeItem(this.STORAGE_KEY);
 
                                     this.showToast(`✅ Migrasi ${parsed.length} entri ke V2 berhasil!`);
-                                    console.log('✅ Migration to V2 complete!');
                                 }
                             } catch (e) {
-                                console.warn('Migration parse error:', e);
+                                // Silent fail on migration parse error
                             }
                         }
-                    } else {
-                        console.log(`📊 Loaded ${this.data.length} entries from OptimizedDB V2`);
                     }
 
                     // Validation: Ensure data is array
                     if (!Array.isArray(this.data)) {
-                        console.warn('Data invalid (not an array). Resetting.');
                         this.data = [];
                     }
 
@@ -1341,11 +1337,9 @@
                 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
                     navigator.serviceWorker.register('./sw.js')
                         .then((reg) => {
-                            console.log('✅ Service Worker registered:', reg.scope);
+                            // Registered
                         })
                         .catch(err => console.error('❌ SW registration failed:', err));
-                } else if (location.protocol === 'file:') {
-                    console.log('ℹ️ Service Worker disabled (file:// protocol). Use http-server or deploy to enable PWA.');
                 }
 
                 // PWA: Install Prompt
@@ -1368,16 +1362,7 @@
              * Log storage statistics to console
              */
             async logStorageStats() {
-                const stats = await this.db.getStorageEstimate();
-                if (stats) {
-                    console.log('💾 Storage Stats:');
-                    console.log(`   Used: ${stats.usageInMB} MB / ${stats.quotaInGB} GB (${stats.percentUsed}%)`);
-
-                    // Calculate available manually since we have mixed units
-                    const quotaMB = stats.quotaInGB * 1024;
-                    const availableMB = (quotaMB - stats.usageInMB).toFixed(2);
-                    console.log(`   Available: ${availableMB} MB`);
-                }
+                // Feature removed for production build purity
             },
 
             deferredPrompt: null,
@@ -1893,29 +1878,53 @@
              */
             loadImagesLazy() {
                 const containers = document.querySelectorAll('.image-container');
-                containers.forEach(container => {
+                containers.forEach(async container => {
                     const entryId = container.dataset.entryId;
                     if (!entryId) return;
 
-                    this.db.getImage(entryId).then(imageData => {
+                    try {
+                        const imageData = await this.db.getImage(entryId);
                         if (imageData && container) {
-                            container.innerHTML = `
-                        <img src="${imageData}" class="card-image" style="width:100%; max-height:300px; object-fit:contain; border-radius:8px; border:1px solid var(--border-color); background:#000; animation: fadeIn 0.3s;">
-                        <div style="align-self: flex-end;">
-                            <a href="${imageData}" download="journal_img_${entryId}.png" class="btn btn-secondary" style="font-size: 0.8rem; padding: 6px 12px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
+                            // SECURITY FIX: User innerHTML is dangerous with unsanitized image data (XSS).
+                            // Solution: Use createElement and set src property safely.
+                            container.innerHTML = ''; // Clear skeleton
+
+                            const img = document.createElement('img');
+                            img.className = 'card-image';
+                            img.style.cssText = 'width:100%; max-height:300px; object-fit:contain; border-radius:8px; border:1px solid var(--border-color); background:#000; animation: fadeIn 0.3s;';
+                            // Validating that it looks like an image data URL
+                            if (typeof imageData === 'string' && imageData.startsWith('data:image/')) {
+                                img.src = imageData;
+                            } else {
+                                throw new Error('Invalid image data format');
+                            }
+
+                            const btnContainer = document.createElement('div');
+                            btnContainer.style.alignSelf = 'flex-end';
+
+                            const downloadBtn = document.createElement('a');
+                            downloadBtn.href = imageData;
+                            downloadBtn.download = `journal_img_${entryId}.png`;
+                            downloadBtn.className = 'btn btn-secondary';
+                            downloadBtn.style.cssText = 'font-size: 0.8rem; padding: 6px 12px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;';
+                            downloadBtn.innerHTML = `
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 14px; height: 14px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                                 Unduh Gambar
-                            </a>
-                        </div>
-                    `;
+                            `;
+
+                            btnContainer.appendChild(downloadBtn);
+                            container.appendChild(img);
+                            container.appendChild(btnContainer);
                         }
-                    }).catch(err => {
+                    } catch (err) {
                         console.error('Load image error for entry:', entryId, err);
-                        // Show error state
+                        // Show error state safe
                         if (container) {
-                            container.innerHTML = '<small style="color: var(--text-muted);">⚠️ Error loading image</small>';
+                            container.innerText = '⚠️ Error loading image';
+                            container.style.color = 'var(--text-muted)';
+                            container.style.fontSize = '0.8rem';
                         }
-                    });
+                    }
                 });
             },
 
@@ -2055,7 +2064,7 @@
                     const waUrl = `https://wa.me/?text=${encodeURIComponent(content)}`;
                     // Add small delay to let the toast appear/copy finish
                     setTimeout(() => {
-                        window.open(waUrl, '_blank');
+                        window.open(waUrl, '_blank', 'noopener,noreferrer');
                     }, 800);
                 }
             },
@@ -2185,28 +2194,29 @@
                             if (json.images && Array.isArray(json.images)) {
                                 let imgCount = 0;
                                 for (const img of json.images) {
-                                    if (img.entryId && img.data) {
+                                    // SECURITY VALIDATION: Ensure only valid image data URLs are restored
+                                    if (img.entryId && img.data && typeof img.data === 'string' && img.data.startsWith('data:image/')) {
                                         await this.db.saveImage(img.entryId, img.data);
                                         imgCount++;
                                     }
                                 }
-                                console.log(`✅ Restored ${imgCount} images`);
                             }
 
                             this.showToast(`✅ Restore Berhasil: ${json.entries.length} data dipulihkan`);
                         }
                         // Scenario 2: V1 Backup (Array of entries)
                         else if (Array.isArray(json)) {
-                            console.log(`📦 Restoring V1 Backup: ${json.length} entries`);
                             let importedCount = 0;
 
                             for (const item of json) {
                                 // Handle inline images from V1
                                 const imageData = item.image;
-                                if (imageData) {
+                                if (imageData && typeof imageData === 'string' && imageData.startsWith('data:image/')) {
                                     await this.db.saveImage(item.id, imageData);
                                     item.hasImage = true;
                                     delete item.image; // Remove inline
+                                } else if (imageData) {
+                                    delete item.image;
                                 }
 
                                 await this.db.saveEntry(item);

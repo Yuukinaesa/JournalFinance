@@ -34,20 +34,13 @@ const MAX_CACHE_SIZE = {
  * Install Event - Precache static assets
  */
 self.addEventListener('install', (event) => {
-    console.log('[SW] Installing Service Worker...', CACHE_VERSION);
-
     event.waitUntil(
         caches.open(CACHE_NAME)
             .then((cache) => {
-                console.log('[SW] Precaching static assets');
                 return cache.addAll(STATIC_ASSETS);
             })
             .then(() => {
-                console.log('[SW] Installation complete');
                 return self.skipWaiting(); // Activate immediately
-            })
-            .catch((error) => {
-                console.error('[SW] Installation failed:', error);
             })
     );
 });
@@ -56,8 +49,6 @@ self.addEventListener('install', (event) => {
  * Activate Event - Clean up old caches
  */
 self.addEventListener('activate', (event) => {
-    console.log('[SW] Activating Service Worker...', CACHE_VERSION);
-
     event.waitUntil(
         caches.keys()
             .then((cacheNames) => {
@@ -71,13 +62,11 @@ self.addEventListener('activate', (event) => {
                                 name !== CACHE_IMAGES;
                         })
                         .map((name) => {
-                            console.log('[SW] Deleting old cache:', name);
                             return caches.delete(name);
                         })
                 );
             })
             .then(() => {
-                console.log('[SW] Activation complete');
                 return self.clients.claim(); // Take control immediately
             })
     );
@@ -135,7 +124,6 @@ async function networkFirstStrategy(request, cacheName, maxSize) {
         return networkResponse;
     } catch (error) {
         // Network failed, try cache
-        console.log('[SW] Network failed, trying cache:', request.url);
         const cachedResponse = await caches.match(request);
 
         if (cachedResponse) {
@@ -179,7 +167,6 @@ async function cacheFirstStrategy(request, cacheName, maxSize) {
 
         return networkResponse;
     } catch (error) {
-        console.error('[SW] Fetch failed:', request.url, error);
         return new Response('Resource not available offline', {
             status: 503,
             statusText: 'Service Unavailable'
@@ -197,7 +184,6 @@ async function trimCache(cacheName, maxSize) {
     if (keys.length > maxSize) {
         const keysToDelete = keys.slice(0, keys.length - maxSize);
         await Promise.all(keysToDelete.map(key => cache.delete(key)));
-        console.log(`[SW] Trimmed cache ${cacheName}: removed ${keysToDelete.length} items`);
     }
 }
 
@@ -215,8 +201,6 @@ self.addEventListener('message', (event) => {
                 return Promise.all(
                     cacheNames.map((name) => caches.delete(name))
                 );
-            }).then(() => {
-                console.log('[SW] All caches cleared');
             })
         );
     }
@@ -226,8 +210,6 @@ self.addEventListener('message', (event) => {
  * Sync Event - Background sync (future feature)
  */
 self.addEventListener('sync', (event) => {
-    console.log('[SW] Background sync:', event.tag);
-
     if (event.tag === 'sync-entries') {
         event.waitUntil(
             // Future: Sync entries to server
@@ -240,8 +222,6 @@ self.addEventListener('sync', (event) => {
  * Push Event - Push notifications (future feature)
  */
 self.addEventListener('push', (event) => {
-    console.log('[SW] Push notification received');
-
     const options = {
         body: event.data ? event.data.text() : 'New update available',
         icon: './icons/icon-192x192.png',
@@ -253,5 +233,3 @@ self.addEventListener('push', (event) => {
         self.registration.showNotification('JournalFinance', options)
     );
 });
-
-console.log('[SW] Service Worker loaded:', CACHE_VERSION);
