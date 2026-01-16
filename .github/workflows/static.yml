@@ -22,8 +22,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Single deploy job since we're just deploying
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate JS Syntax
+        run: |
+          node -c OptimizedDB.js
+          node -c sw.js
+      
+      - name: Verify Essential Files
+        run: |
+          if [ ! -f index.html ]; then echo "index.html missing"; exit 1; fi
+          if [ ! -f manifest.json ]; then echo "manifest.json missing"; exit 1; fi
+          if [ ! -f sw.js ]; then echo "sw.js missing"; exit 1; fi
+
   deploy:
+    needs: validate
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

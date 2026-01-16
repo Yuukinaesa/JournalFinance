@@ -542,6 +542,7 @@
             color: var(--text-main);
             margin: 4px 0 8px;
             line-height: 1.3;
+            word-break: break-word;
         }
 
         .card-date {
@@ -2038,22 +2039,24 @@
                 }
                 const content = this.generateTxtContent(filtered);
 
-                // Mobile View: Redirect to WhatsApp
-                if (window.innerWidth <= 768) {
-                    const waUrl = `https://wa.me/?text=${encodeURIComponent(content)}`;
-                    window.open(waUrl, '_blank');
-                    return;
-                }
-
-                // Desktop View: Copy to Clipboard
+                // 1. ALWAYS Execute Copy (Desktop & Mobile)
                 if (navigator.clipboard && navigator.clipboard.writeText) {
                     navigator.clipboard.writeText(content).then(() => {
-                        this.showToast('Catatan berhasil disalin ke Clipboard!');
+                        this.showToast('Catatan disalin ke Clipboard!');
                     }).catch(err => {
                         this.fallbackCopyText(content);
                     });
                 } else {
                     this.fallbackCopyText(content);
+                }
+
+                // 2. IF Mobile: ALSO Redirect to WhatsApp
+                if (window.innerWidth <= 768) {
+                    const waUrl = `https://wa.me/?text=${encodeURIComponent(content)}`;
+                    // Add small delay to let the toast appear/copy finish
+                    setTimeout(() => {
+                        window.open(waUrl, '_blank');
+                    }, 800);
                 }
             },
 

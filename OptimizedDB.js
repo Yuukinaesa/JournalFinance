@@ -23,18 +23,33 @@ class OptimizedJournalDB {
     /**
      * Open database with two object stores: entries & images
      */
+    /**
+     * Open database with two object stores: entries & images
+     * Implements Singleton Promise Pattern to prevent race conditions
+     */
     async open() {
-        return new Promise((resolve, reject) => {
+        if (this.db) return this.db;
+        if (this.openPromise) return this.openPromise;
+
+        this.openPromise = new Promise((resolve, reject) => {
             const request = indexedDB.open(this.dbName, this.dbVersion);
 
             request.onerror = () => {
                 console.error('❌ IndexedDB Error:', request.error);
+                this.openPromise = null; // Reset on failure
                 reject(request.error);
             };
 
             request.onsuccess = () => {
                 this.db = request.result;
+                // Handle generic error for durability
+                this.db.onversionchange = () => {
+                    this.db.close();
+                    this.db = null;
+                    console.warn('⚠️ DB Closed for version change');
+                };
                 console.log('✅ IndexedDB opened successfully (V2 Optimized)');
+                this.openPromise = null; // Cleanup
                 resolve(this.db);
             };
 
@@ -59,6 +74,8 @@ class OptimizedJournalDB {
                 }
             };
         });
+
+        return this.openPromise;
     }
 
     // ====================
