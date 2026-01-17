@@ -490,7 +490,7 @@ window.app = {
         bind('entryImage', 'change', (e) => this.handleImagePreview(e.target));
         bind('triggerImgUploadBtn', 'click', () => document.getElementById('entryImage').click());
         bind('replaceImgBtn', 'click', () => document.getElementById('entryImage').click());
-        bind('removeImgBtn', 'click', () => this.clearImage());
+        bind('removeImageBtn', 'click', () => this.clearImage());
 
         // Delete Modal
         bind('closeDeleteModalBtn', 'click', () => this.closeDeleteModal());
@@ -1080,9 +1080,44 @@ window.app = {
         setTimeout(() => t.className = 'toast', 3000);
     },
 
-    copyText() {
-        const txt = this.data.map(i => `${i.date} [${i.type}]: ${i.title} - ${JSON.stringify(i.reason)}`).join('\n');
-        navigator.clipboard.writeText(txt).then(() => this.showToast('Disalin ke clipboard'));
+    async copyText() {
+        // Use filtered data so user can copy specific views (e.g. per month)
+        const dataToExport = this.getFilteredData();
+        if (!dataToExport || dataToExport.length === 0) {
+            this.showToast('⚠️ Tidak ada data untuk disalin');
+            return;
+        }
+
+        // Format: WhatsApp Friendly
+        const lines = dataToExport.map((i, index) => {
+            const date = this.formatDate(i.date);
+            const type = i.type.toUpperCase();
+            const reason = i.reason ? i.reason.replace(/\n/g, ' ') : '-';
+
+            return `*${index + 1}. ${i.title}*\n📅 ${date} • ${type}\n📝 ${reason}`;
+        });
+
+        const header = `📋 *LAPORAN JURNAL KEUANGAN*\nTotal: ${dataToExport.length} Catatan\nGenerated: ${new Date().toLocaleString('id-ID')}\n\n`;
+        const txt = header + lines.join('\n\n-------------------\n\n');
+
+        try {
+            await navigator.clipboard.writeText(txt);
+            this.showToast('✅ Laporan disalin ke clipboard');
+
+            // Mobile Detection & Redirect
+            const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 768;
+
+            if (isMobile) {
+                this.showToast('🚀 Mengalihkan ke WhatsApp...');
+                setTimeout(() => {
+                    window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, '_blank');
+                }, 800);
+            }
+
+        } catch (err) {
+            console.error('Copy failed:', err);
+            this.showToast('❌ Gagal menyalin: ' + err.message);
+        }
     },
 
     downloadTxt() {
