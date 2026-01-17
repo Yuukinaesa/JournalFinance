@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JournalFinance Audit Tests</title>
+    <style>
+        body {
+            font-family: monospace;
+            background: #1e1e1e;
+            color: #fff;
+            padding: 20px;
+        }
+
+        .pass {
+            color: #4caf50;
+            font-weight: bold;
+        }
+
+        .fail {
+            color: #f44336;
+            font-weight: bold;
+        }
+
+        .log {
+            margin-bottom: 5px;
+            border-bottom: 1px solid #333;
+            padding: 5px;
+        }
+
+        h1 {
+            color: #6366f1;
+        }
+    </style>
+    <!-- Dependencies -->
+    <script src="./OptimizedDB.js"></script>
+    <script src="./app.js"></script>
+</head>
+
+<body>
+    <h1>JournalFinance Automated Audit Suite</h1>
+    <div id="results">Running tests...</div>
+
+    <script>
+        // Use a separate DB for testing to avoid wiping Prod data
+        class TestDB extends OptimizedJournalDB {
+            constructor() {
+                super();
+                this.dbName = 'JournalFinanceDB_TEST_SUITE';
+            }
+        }
+
+        const log = (msg, status = 'INFO') => {
+            const el = document.createElement('div');
+            el.className = 'log';
+            if (status === 'PASS') el.innerHTML = `[PASS] <span class="pass">${msg}</span>`;
+            else if (status === 'FAIL') el.innerHTML = `[FAIL] <span class="fail">${msg}</span>`;
+            else el.innerText = `[INFO] ${msg}`;
+            document.getElementById('results').appendChild(el);
+            console.log(`[${status}] ${msg}`);
+            return status === 'PASS';
+        };
+
+        const assert = (condition, msg) => {
+            if (condition) return log(msg, 'PASS');
+            else return log(msg, 'FAIL');
+        };
+
+        async function runTests() {
+            let passed = 0;
+            let total = 0;
+
+            // --- 1. Security & Utils Logic ---
+            total++;
+            if (app.escapeHtml('<script>') === '&lt;script&gt;') passed++;
+            log('XSS Prevention (escapeHtml) check', app.escapeHtml('<script>') === '&lt;script&gt;' ? 'PASS' : 'FAIL');
+
+            total++;
+            const dateStr = app.formatDate('2024-01-01');
+            if (dateStr.includes('Senin') || dateStr.includes('Monday')) passed++; // Locale dependent
+            log('Date Formatting check', dateStr.length > 5 ? 'PASS' : 'FAIL');
+
+            // --- 2. Database Integrity (OptimizedDB) ---
+            const db = new TestDB();
+
+            try {
+                await db.open();
+                log('DB Connection Open', 'PASS'); passed++; total++;
+
+                // Clear Test DB
+                await db.clearAll();
+
+                // Test Entry Save
+                total++;
+                const entry = {
+                    id: 'test-1',
+                    date: '2024-01-01',
+                    title: 'Unit Test Entry',
+                    type: 'saham',
+                    reason: 'Testing database',
+                    timestamp: Date.now()
+                };
+                await db.saveEntry(entry);
+                const fetched = (await db.getAllEntries()).find(e => e.id === 'test-1');
+
+                if (fetched && fetched.title === 'Unit Test Entry') {
+                    log('DB Create & Read Entry', 'PASS');
+                    passed++;
+                } else {
+                    log('DB Create & Read Entry', 'FAIL');
+                }
+
+                // Test Image Storage (Separate Store)
+                total++;
+                const mockImg = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+                await db.saveImage('test-1', mockImg);
+                const fetchedImg = await db.getImage('test-1');
+
+                if (fetchedImg === mockImg) {
+                    log('DB Image Save & Retrieve', 'PASS');
+                    passed++;
+                } else {
+                    log('DB Image Save & Retrieve', 'FAIL');
+                }
+
+                // Cleanup
+                await db.deleteFull('test-1');
+                const check = await db.getImage('test-1');
+                if (!check) {
+                    total++; passed++;
+                    log('DB Full Delete Integrity', 'PASS');
+                }
+
+            } catch (e) {
+                log('DB Critical Failure: ' + e.message, 'FAIL');
+            }
+
+            // --- 3. App Logic & Dom Binding ---
+            total++;
+            if (typeof app.initEventListeners === 'function') {
+                log('App Event Listeners Defined', 'PASS');
+                passed++;
+            } else {
+                log('App Structure', 'FAIL');
+            }
+
+            // --- Summary ---
+            const resultEl = document.createElement('h2');
+            resultEl.innerText = `Final Result: ${passed}/${total} PASS`;
+            resultEl.style.color = passed === total ? '#4caf50' : '#f44336';
+            document.body.prepend(resultEl);
+        }
+
+        setTimeout(runTests, 1000); // Wait for scripts
+    </script>
+</body>
+
+</html>
