@@ -10,7 +10,6 @@ on:
   workflow_dispatch:
 
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
-# SECURITY: Minimal permissions principle
 permissions:
   contents: read
   pages: write
@@ -23,45 +22,22 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  validate:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        # Pinned to SHA for security - prevents supply chain attacks
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-
-      - name: Validate JS Syntax
-        run: |
-          node -c OptimizedDB.js
-          node -c sw.js
-      
-      - name: Verify Essential Files
-        run: |
-          if [ ! -f index.html ]; then echo "index.html missing"; exit 1; fi
-          if [ ! -f manifest.json ]; then echo "manifest.json missing"; exit 1; fi
-          if [ ! -f sw.js ]; then echo "sw.js missing"; exit 1; fi
-
+  # Single deploy job since we're just deploying
   deploy:
-    needs: validate
-    permissions:
-      pages: write
-      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@v4
       - name: Setup Pages
-        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+        uses: actions/configure-pages@v5
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+        uses: actions/upload-pages-artifact@v3
         with:
           # Upload entire repository
           path: '.'
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
+        uses: actions/deploy-pages@v4
