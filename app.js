@@ -1020,11 +1020,23 @@ window.app = {
 
         // Sort: Pinned First > Date Descending > Created Descending
         filtered.sort((a, b) => {
-            if (a.pinned !== b.pinned) {
-                return a.pinned ? -1 : 1;
+            // Helper to handle legacy data types (e.g. "false" string)
+            const isPinned = (val) => {
+                if (val === 'false') return false;
+                return !!val;
+            };
+
+            const pinA = isPinned(a.pinned);
+            const pinB = isPinned(b.pinned);
+
+            if (pinA !== pinB) {
+                return pinA ? -1 : 1;
             }
             if (a.date !== b.date) {
-                return b.date.localeCompare(a.date);
+                // Safely compare dates
+                const dateA = a.date || '';
+                const dateB = b.date || '';
+                return dateB.localeCompare(dateA);
             }
             return (b.timestamp || 0) - (a.timestamp || 0);
         });
