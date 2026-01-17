@@ -993,7 +993,7 @@ window.app = {
     // --- Helpers ---
 
     getFilteredData() {
-        let filtered = this.data;
+        let filtered = [...this.data]; // Copy for sorting
         const search = document.getElementById('searchInput').value.toLowerCase();
         const type = document.getElementById('filterType').value;
         const start = document.getElementById('dateStart').value;
@@ -1017,6 +1017,17 @@ window.app = {
         if (end) {
             filtered = filtered.filter(item => item.date <= end);
         }
+
+        // Sort: Pinned First > Date Descending > Created Descending
+        filtered.sort((a, b) => {
+            if (a.pinned !== b.pinned) {
+                return a.pinned ? -1 : 1;
+            }
+            if (a.date !== b.date) {
+                return b.date.localeCompare(a.date);
+            }
+            return (b.timestamp || 0) - (a.timestamp || 0);
+        });
 
         return filtered;
     },
