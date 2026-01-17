@@ -134,8 +134,12 @@ window.app = {
                 this.renderList();
 
                 if (operation === 'restore') {
-                    this.showToast('✅ Restore Selesai');
+                    this.showToast('✅ Restore Selesai. Konfirmasi muat ulang...');
                     localStorage.removeItem('APP_STATUS');
+                    setTimeout(() => {
+                        window.onbeforeunload = () => true;
+                        window.location.reload();
+                    }, 2000);
                 } else {
                     this.showToast('✅ Reset Selesai');
                     localStorage.removeItem(this.STORAGE_KEY);
