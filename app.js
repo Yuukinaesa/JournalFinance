@@ -16,39 +16,389 @@ window.app = {
     deleteTargetId: null,
     closeTimeout: null,
     db: new OptimizedJournalDB(), // Uses external OptimizedDB
+    worker: null,
 
     async init() {
         try {
-            // Initialize OptimizedDB (V2)
-            await this.db.open();
-
-            // Load entries
-            this.data = await this.db.getAllEntries();
-
-            // Migration Logic
-            if (this.data.length === 0) {
-                await this.migrateFromLocalStorage();
+            // Initialize Worker with Safe Fallback
+            try {
+                if (window.Worker) {
+                    this.worker = new Worker('worker-db.js');
+                    this.worker.onerror = (e) => {
+                        console.warn('Worker failed, falling back to main thread:', e);
+                        this.worker = null;
+                    };
+                    this.initWorkerListener();
+                }
+            } catch (err) {
+                console.warn('Could not initialize Worker (likely file:// protocol), falling back to main thread.', err);
+                this.worker = null;
             }
 
-            // Ensure data is array
+            await this.db.open();
+            this.data = await this.db.getAllEntries();
+
+            // Migration
+            if (this.data.length === 0) await this.migrateFromLocalStorage();
             if (!Array.isArray(this.data)) this.data = [];
 
-            // PWA Registration
             this.registerServiceWorker();
-
-            // Setup Theme
             this.initTheme();
-
-            // Setup Event Listeners (Security: No inline handlers)
             this.initEventListeners();
-
-            // Initial Render
             this.renderList();
+
+            // RESUME CHECK
+            if (localStorage.getItem('APP_STATUS') === 'RESTORING') {
+                this.resumeRestore();
+            }
 
         } catch (e) {
             console.error('Core init error:', e);
             this.data = [];
-            this.showToast('⚠️ Error loading data. Using empty dataset.');
+            this.showToast('⚠️ Error initializing app.');
+        }
+    },
+
+    initWorkerListener() {
+        if (!this.worker) return;
+        this.worker.onmessage = (e) => {
+            const { type, operation, current, total, stage, data, error } = e.data;
+
+            if (type === 'progress') {
+                let pct = (current / total) * 100;
+                this.updateProgressUI(pct, operation, stage);
+            }
+
+            if (type === 'success') {
+                this.handleSuccess(operation, data);
+            }
+
+            if (type === 'error') {
+                this.hideProgress();
+                console.error('Worker Error:', error);
+                alert('Terjadi kesalahan: ' + error);
+                if (operation === 'restore') localStorage.removeItem('APP_STATUS');
+            }
+        };
+    },
+
+    // --- Unified Progress & Success Handlers ---
+
+    updateProgressUI(pct, operation, stage) {
+        let title = '';
+        let msg = '';
+
+        if (operation === 'backup') {
+            title = 'Membuat Backup...';
+            if (stage === 'init') msg = 'Menyiapkan...';
+            if (stage === 'fetching_entries') msg = 'Mengumpulkan Catatan...';
+            if (stage === 'fetching_images') msg = 'Mengumpulkan Gambar...';
+            if (stage === 'compressing') msg = 'Membuat File JSON...';
+            if (stage === 'preparing_download') msg = 'Menyiapkan Unduhan...';
+        } else if (operation === 'restore') {
+            title = 'Restore Data...';
+            if (stage === 'parsing') msg = 'Membaca File...';
+            if (stage === 'saving_checkpoint') msg = 'Menyimpan Titik Pulih...';
+            if (stage === 'clearing_db') msg = 'Membersihkan Database...';
+            if (stage.includes('entries')) msg = `Memulihkan Catatan (${Math.floor(pct)}%)...`;
+            if (stage.includes('images')) msg = `Memulihkan Gambar (${Math.floor(pct)}%)...`;
+        } else if (operation === 'reset') {
+            title = 'Reset Data...';
+            msg = 'Menghapus database...';
+        }
+
+        this.showProgress(pct, title, msg);
+    },
+
+    handleSuccess(operation, data) {
+        this.showProgress(100, 'Selesai!', 'Operasi berhasil.');
+        setTimeout(() => this.hideProgress(), 1000);
+
+        if (operation === 'backup' && data) {
+            // Download Blob
+            const url = URL.createObjectURL(data);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `backup_JournalFinance_v2_${new Date().toISOString().slice(0, 10)}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 5000);
+            this.showToast('✅ Backup Berhasil Diunduh');
+        }
+
+        if (operation === 'restore' || operation === 'reset') {
+            // Reload data
+            this.db.getAllEntries().then(entries => {
+                this.data = entries;
+                this.renderList();
+
+                if (operation === 'restore') {
+                    this.showToast('✅ Restore Selesai');
+                    localStorage.removeItem('APP_STATUS');
+                } else {
+                    this.showToast('✅ Reset Selesai');
+                    localStorage.removeItem(this.STORAGE_KEY);
+                    localStorage.removeItem('APP_STATUS');
+                    this.closeResetModal();
+                }
+            });
+        }
+    },
+
+    // --- Progress UI ---
+    showProgress(percent, title, msg) {
+        const modal = document.getElementById('progressModal');
+        const fill = document.getElementById('progressBarFill');
+        const txt = document.getElementById('progressPercent');
+
+        modal.classList.add('open');
+        if (title) document.getElementById('progressTitle').innerText = title;
+        if (msg) document.getElementById('progressMessage').innerText = msg;
+
+        fill.style.width = `${percent}%`;
+        txt.innerText = `${Math.floor(percent)}%`;
+    },
+
+    hideProgress() {
+        document.getElementById('progressModal').classList.remove('open');
+    },
+
+    // --- Backup & Utils ---
+
+    async backupData() {
+        this.showProgress(0, 'Menyiapkan Backup...', 'Memulai...');
+
+        if (this.worker) {
+            this.worker.postMessage({ action: 'backup' });
+        } else {
+            // Main Thread Fallback
+            await this.processBackupMain();
+        }
+    },
+
+    async processBackupMain() {
+        try {
+            // 1. Entries
+            this.updateProgressUI(10, 'backup', 'fetching_entries');
+            // Give UI a moment to render
+            await new Promise(r => setTimeout(r, 50));
+
+            const entries = await this.db.getAllEntries();
+
+            // 2. Images
+            this.updateProgressUI(40, 'backup', 'fetching_images');
+            await new Promise(r => setTimeout(r, 50));
+
+            const images = await this.db.getAllImages((c, t) => {
+                const pct = 40 + (c / t * 40);
+                this.updateProgressUI(pct, 'backup', 'fetching_images');
+            });
+
+            // 3. Serialize
+            this.updateProgressUI(90, 'backup', 'compressing');
+            await new Promise(r => setTimeout(r, 50));
+
+            const backupData = {
+                version: 2,
+                timestamp: new Date().toISOString(),
+                entries,
+                images
+            };
+
+            const jsonString = JSON.stringify(backupData, null, 2);
+            const blob = new Blob([jsonString], { type: 'application/json' });
+
+            this.handleSuccess('backup', blob);
+
+        } catch (e) {
+            console.error(e);
+            this.hideProgress();
+            this.showToast('❌ Gagal Backup: ' + e.message);
+        }
+    },
+
+    resetFilters() {
+        document.getElementById('searchInput').value = '';
+        document.getElementById('filterType').value = '';
+        document.getElementById('dateStart').value = '';
+        document.getElementById('dateEnd').value = '';
+        this.renderList();
+        this.showToast('Filters reset');
+    },
+
+    restoreTrigger() {
+        document.getElementById('importFile').click();
+    },
+
+    // --- Robust Restore ---
+
+    async restoreData(input) {
+        const file = input.files[0];
+        if (!file) return;
+
+        if (!confirm('PERINGATAN: Restore akan MENGHAPUS semua data saat ini. Lanjut?')) {
+            input.value = '';
+            return;
+        }
+
+        this.showProgress(0, 'Menyiapkan Restore...', 'Mengirim data...');
+        localStorage.setItem('APP_STATUS', 'RESTORING');
+
+        if (this.worker) {
+            this.worker.postMessage({ action: 'restore', payload: file });
+        } else {
+            // Main thread fallback: Need to read file text first
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    const json = JSON.parse(e.target.result);
+                    await this.processRestoreMain(json);
+                } catch (err) {
+                    this.hideProgress();
+                    alert('File corrupt: ' + err.message);
+                    localStorage.removeItem('APP_STATUS');
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        input.value = '';
+    },
+
+    async resumeRestore() {
+        if (!confirm('Pemberitahuan: Sistem mendeteksi proses restore yang belum selesai. Lanjutkan sekarang?')) {
+            localStorage.removeItem('APP_STATUS');
+            await this.db.deleteRestorePoint();
+            return;
+        }
+
+        this.showProgress(0, 'Melanjutkan Restore...', 'Memuat data...');
+
+        if (this.worker) {
+            this.worker.postMessage({ action: 'resume' });
+        } else {
+            // Main thread fallback
+            try {
+                const json = await this.db.getRestorePoint();
+                if (!json) throw new Error('Backup cache missing');
+                await this.processRestoreMain(json);
+            } catch (e) {
+                alert('Gagal resume: ' + e.message);
+            }
+        }
+    },
+
+    async processRestoreMain(json) {
+        try {
+            // Detect Legacy Format (Array) and Normalize
+            if (Array.isArray(json)) {
+                const entries = [];
+                const images = [];
+
+                json.forEach(item => {
+                    const entry = {
+                        id: String(item.id || Date.now() + Math.random()),
+                        date: String(item.date || new Date().toISOString().slice(0, 10)),
+                        title: String(item.title || 'Untitled'),
+                        type: String(item.type || 'lainnya'),
+                        reason: String(item.reason || ''),
+                        highlight: !!item.highlight,
+                        pinned: !!item.pinned,
+                        timestamp: Number(item.timestamp) || Date.now(),
+                        hasImage: false
+                    };
+
+                    if (item.image && typeof item.image === 'string') {
+                        images.push({
+                            entryId: entry.id,
+                            data: item.image
+                        });
+                        entry.hasImage = true;
+                    } else if (item.hasImage) {
+                        entry.hasImage = true;
+                    }
+                    entries.push(entry);
+                });
+
+                json = {
+                    version: 2,
+                    timestamp: new Date().toISOString(),
+                    entries: entries,
+                    images: images
+                };
+            }
+
+            if (json.version !== 2 || !Array.isArray(json.entries)) {
+                throw new Error('Format file tidak valid.');
+            }
+
+            // 1. Save checkpoint
+            this.updateProgressUI(5, 'restore', 'saving_checkpoint');
+            await this.db.saveRestorePoint(json);
+
+            // 2. Clear
+            this.updateProgressUI(10, 'restore', 'clearing_db');
+            await this.db.clearAll();
+
+            const totalEntries = json.entries.length;
+            const totalImages = (json.images || []).length;
+
+            // 3. Entries
+            if (totalEntries > 0) {
+                this.updateProgressUI(15, 'restore', 'restoring_entries');
+                await this.db.bulkPut('entries', json.entries, (c, t) => {
+                    const pct = 15 + (c / totalEntries * 35);
+                    this.updateProgressUI(pct, 'restore', 'restoring_entries');
+                });
+            }
+
+            // 4. Images
+            if (totalImages > 0) {
+                this.updateProgressUI(50, 'restore', 'restoring_images');
+                const imageChunks = json.images.filter(img => img.data && img.data.startsWith('data:image/'));
+                await this.db.bulkPut('images', imageChunks, (c, t) => {
+                    const pct = 50 + (c / totalImages * 45);
+                    this.updateProgressUI(pct, 'restore', 'restoring_images');
+                });
+            }
+
+            // Cleanup
+            await this.db.deleteRestorePoint();
+            this.handleSuccess('restore');
+
+        } catch (e) {
+            console.error(e);
+            this.hideProgress();
+            alert('Gagal Restore: ' + e.message);
+            localStorage.removeItem('APP_STATUS');
+        }
+    },
+
+    // --- Reset ---
+
+    async confirmReset() {
+        const input = document.getElementById('resetConfirmInput');
+        if (input.value.toLowerCase() !== 'yes') return;
+
+        this.closeResetModal();
+        this.showProgress(0, 'Menghapus Semua Data', 'Mohon tunggu...');
+
+        if (this.worker) {
+            this.worker.postMessage({ action: 'reset' });
+        } else {
+            try {
+                await this.db.clearAll();
+                // Also clear backup cache
+                await this.db.deleteRestorePoint();
+                localStorage.removeItem(this.STORAGE_KEY);
+                localStorage.removeItem('APP_STATUS');
+                this.handleSuccess('reset');
+            } catch (e) {
+                console.error('Reset error:', e);
+                this.hideProgress();
+                this.showToast('❌ Gagal reset storage');
+            }
         }
     },
 
@@ -110,7 +460,7 @@ window.app = {
         bind('themeToggle', 'click', () => this.toggleTheme());
         bind('installBtn', 'click', () => this.installApp());
         bind('backupBtn', 'click', () => this.backupData());
-        bind('triggerRestoreBtn', 'click', () => document.getElementById('importFile').click());
+        bind('triggerRestoreBtn', 'click', () => this.restoreTrigger());
         bind('importFile', 'change', (e) => this.restoreData(e.target));
 
         // Filters
@@ -624,10 +974,9 @@ window.app = {
                     const img = document.createElement('img');
                     img.className = 'card-image';
                     img.style.cssText = 'width:100%; max-height:300px; object-fit:contain; border-radius:8px; border:1px solid var(--border-color); background:#000; animation: fadeIn 0.3s;';
-                    // Security check
                     if (imageData.startsWith('data:image/')) {
                         img.src = imageData;
-                        img.alt = 'Lampiran Gambar Catatan'; // Accessibility Fix
+                        img.alt = 'Lampiran Gambar Catatan';
                     }
                     container.appendChild(img);
                 }
@@ -640,164 +989,100 @@ window.app = {
     // --- Helpers ---
 
     getFilteredData() {
-        const search = (document.getElementById('searchInput').value || '').toLowerCase();
-        const typeFilter = document.getElementById('filterType').value;
-        const startDate = document.getElementById('dateStart').value;
-        const endDate = document.getElementById('dateEnd').value;
+        let filtered = this.data;
+        const search = document.getElementById('searchInput').value.toLowerCase();
+        const type = document.getElementById('filterType').value;
+        const start = document.getElementById('dateStart').value;
+        const end = document.getElementById('dateEnd').value;
 
-        return this.data.filter(item => {
-            const matchSearch = (item.title || '').toLowerCase().includes(search) ||
-                (item.reason || '').toLowerCase().includes(search);
-            const matchType = typeFilter ? item.type === typeFilter : true;
-            let matchDate = true;
-            if (startDate) matchDate = matchDate && (item.date >= startDate);
-            if (endDate) matchDate = matchDate && (item.date <= endDate);
-            return matchSearch && matchType && matchDate;
-        }).sort((a, b) => {
-            if (a.pinned && !b.pinned) return -1;
-            if (!a.pinned && b.pinned) return 1;
-            if (b.date > a.date) return 1;
-            if (b.date < a.date) return -1;
-            return String(b.id).localeCompare(String(a.id));
-        });
-    },
-
-    openModal(isEdit = false) {
-        if (this.closeTimeout) clearTimeout(this.closeTimeout);
-        const modal = document.getElementById('entryModal');
-        modal.classList.add('open');
-
-        if (!isEdit) {
-            document.getElementById('entryForm').reset();
-            document.getElementById('entryId').value = '';
-            document.getElementById('modalTitle').innerText = 'Tambah Catatan Baru';
-            this.clearImage();
-
-            const d = new Date();
-            document.getElementById('entryDate').value = d.toISOString().slice(0, 10);
+        if (search) {
+            filtered = filtered.filter(item =>
+                item.title.toLowerCase().includes(search) ||
+                (item.reason && item.reason.toLowerCase().includes(search))
+            );
         }
-    },
 
-    closeModal() {
-        document.getElementById('entryModal').classList.remove('open');
-        this.closeTimeout = setTimeout(() => {
-            document.getElementById('entryForm').reset();
-            document.getElementById('entryId').value = '';
-            document.getElementById('modalTitle').innerText = 'Tambah Catatan Baru';
-        }, 200);
+        if (type) {
+            filtered = filtered.filter(item => item.type === type);
+        }
+
+        if (start) {
+            filtered = filtered.filter(item => item.date >= start);
+        }
+
+        if (end) {
+            filtered = filtered.filter(item => item.date <= end);
+        }
+
+        return filtered;
     },
 
     toggleTheme() {
-        const current = document.body.getAttribute('data-theme');
-        const next = current === 'light' ? 'dark' : 'light';
-        document.body.setAttribute('data-theme', next);
+        const body = document.body;
+        const current = body.getAttribute('data-theme');
+        const next = current === 'dark' ? 'light' : 'dark';
+        body.setAttribute('data-theme', next);
         localStorage.setItem('theme', next);
         this.updateThemeIcon(next);
     },
 
     updateThemeIcon(theme) {
         const btn = document.getElementById('themeToggle');
-        // Simple SVG switch
-        if (theme === 'dark') {
-            btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>`;
-        } else {
-            btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`;
+        if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+    },
+
+    openModal(isEdit = false) {
+        if (!isEdit) {
+            document.getElementById('entryForm').reset();
+            document.getElementById('entryId').value = '';
+            document.getElementById('entryDate').value = new Date().toISOString().slice(0, 10);
+            document.getElementById('modalTitle').innerText = 'Tambah Catatan';
+            this.clearImage();
         }
+        document.getElementById('entryModal').classList.add('open');
     },
 
-    escapeHtml(text) {
-        if (!text) return '';
-        const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
-        return text.replace(/[&<>"']/g, m => map[m]);
-    },
-
-    formatDate(dateStr) {
-        if (!dateStr) return '-';
-        return new Date(dateStr).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    closeModal() {
+        document.getElementById('entryModal').classList.remove('open');
     },
 
     showToast(msg) {
-        const toast = document.getElementById('toast');
-        toast.innerText = msg;
-        toast.classList.add('show');
-        if (this.toastTimeout) clearTimeout(this.toastTimeout);
-        this.toastTimeout = setTimeout(() => toast.classList.remove('show'), 3000);
-    },
-
-    // --- IO ---
-
-    generateTxtContent(data) {
-        return data.map(item => `Tanggal: ${item.date}\nJudul: ${item.title}\nCatatan: ${item.reason || '-'}`).join('\n\n');
+        const t = document.getElementById('toast');
+        t.innerText = msg;
+        t.className = 'toast show';
+        setTimeout(() => t.className = 'toast', 3000);
     },
 
     copyText() {
-        const filtered = this.getFilteredData();
-        if (filtered.length === 0) return this.showToast('No data');
-        const content = this.generateTxtContent(filtered);
-        navigator.clipboard.writeText(content).then(() => this.showToast('Copied!')).catch(() => this.showToast('Failed to copy'));
+        const txt = this.data.map(i => `${i.date} [${i.type}]: ${i.title} - ${JSON.stringify(i.reason)}`).join('\n');
+        navigator.clipboard.writeText(txt).then(() => this.showToast('Disalin ke clipboard'));
     },
 
     downloadTxt() {
-        const filtered = this.getFilteredData();
-        if (filtered.length === 0) return this.showToast('No data');
-        const blob = new Blob([this.generateTxtContent(filtered)], { type: 'text/plain' });
+        const txt = this.data.map(i => `${i.date} [${i.type}]: ${i.title}\nKet: ${i.reason}\n----------------`).join('\n');
+        const blob = new Blob([txt], { type: 'text/plain' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = `journal_${new Date().toISOString().slice(0, 10)}.txt`;
+        a.download = 'jurnal.txt';
         a.click();
     },
 
-    async backupData() {
-        try {
-            const entries = await this.db.getAllEntries();
-            const images = await this.db.getAllImages();
-            const backup = { version: 2, timestamp: new Date().toISOString(), entries, images };
-            const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = `backup_v2_${new Date().toISOString().slice(0, 10)}.json`;
-            a.click();
-            this.showToast('Backup downloaded');
-        } catch (e) { console.error(e); }
+    formatDate(d) {
+        if (!d) return '-';
+        const date = new Date(d);
+        return date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
     },
 
-    resetFilters() {
-        document.getElementById('searchInput').value = '';
-        document.getElementById('filterType').value = '';
-        document.getElementById('dateStart').value = '';
-        document.getElementById('dateEnd').value = '';
-        this.renderList();
-        this.showToast('Filters reset');
-    },
-
-    async restoreData(input) {
-        // Logic same as original, just connected to listener
-        const file = input.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-            try {
-                const json = JSON.parse(e.target.result);
-                if (json.version === 2 && json.entries) {
-                    await this.db.bulkSaveEntries(json.entries);
-                    if (json.images) {
-                        for (const img of json.images) {
-                            if (img.data && img.data.startsWith('data:image/')) await this.db.saveImage(img.entryId, img.data);
-                        }
-                    }
-                    this.showToast('Data Restored');
-                } else {
-                    alert('Invalid format');
-                }
-                this.data = await this.db.getAllEntries();
-                this.renderList();
-            } catch (err) { console.error(err); alert('Restore Failed'); }
-            input.value = '';
-        };
-        reader.readAsText(file);
+    escapeHtml(str) {
+        if (!str) return '';
+        const div = document.createElement('div');
+        div.innerText = str;
+        return div.innerHTML;
     }
 };
 
+// Initialize
 document.addEventListener('DOMContentLoaded', () => {
-    app.init();
+    window.app.init();
 });
+

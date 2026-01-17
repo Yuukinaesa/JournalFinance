@@ -1249,6 +1249,41 @@
         </div>
     </div>
 
+    <!-- Progress Modal (Robust) -->
+    <div id="progressModal" class="modal" style="z-index: 2000;">
+        <div class="modal-content" style="max-width: 400px; text-align: center;">
+            <div style="margin-bottom: 24px;">
+                <div class="spinner"
+                    style="width: 40px; height: 40px; border: 4px solid rgba(99,102,241,0.3); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto;">
+                </div>
+            </div>
+            <h3 id="progressTitle" style="font-size: 1.25rem; font-weight: 700; margin-bottom: 8px;">Memproses...</h3>
+            <p id="progressMessage" style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 16px;">Mohon
+                tunggu sebentar</p>
+
+            <!-- Progress Bar -->
+            <div
+                style="width: 100%; height: 8px; background: var(--bg-body); border-radius: 4px; overflow: hidden; margin-bottom: 8px;">
+                <div id="progressBarFill"
+                    style="width: 0%; height: 100%; background: var(--primary-gradient); transition: width 0.2s linear;">
+                </div>
+            </div>
+            <p id="progressPercent"
+                style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600; text-align: right;">0%</p>
+
+            <p style="font-size: 0.8rem; color: #ef4444; margin-top: 12px; font-style: italic;">⚠️ Jangan tutup atau
+                refresh halaman ini.</p>
+        </div>
+    </div>
+
+    <style>
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+
     <!-- Toast -->
     <div id="toast" class="toast">Pesan notifikasi</div>
 

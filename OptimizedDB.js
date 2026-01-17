@@ -14,7 +14,7 @@
 class OptimizedJournalDB {
     constructor() {
         this.dbName = 'JournalFinanceDB_V2';
-        this.dbVersion = 2;
+        this.dbVersion = 3;
         this.entryStore = 'entries';
         this.imageStore = 'images';
         this.db = null;
@@ -68,6 +68,11 @@ class OptimizedJournalDB {
                 if (!db.objectStoreNames.contains(this.imageStore)) {
                     db.createObjectStore(this.imageStore, { keyPath: 'entryId' });
                 }
+
+                // Store 3: Restore Cache (Persistence)
+                if (!db.objectStoreNames.contains('restore_cache')) {
+                    db.createObjectStore('restore_cache', { keyPath: 'id' });
+                }
             };
         });
 
@@ -79,272 +84,170 @@ class OptimizedJournalDB {
     // ====================
 
     /**
-     * Get all entries (NO images, lightweight)
+     * Get all entries (NO images, lightweight) - With Progress
      */
-    async getAllEntries() {
+
+    /**
+     * Get all entries (NO images, lightweight) - Optimized with getAll
+     */
+    async getAllEntries(onProgress) {
         if (!this.db) await this.open();
 
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction([this.entryStore], 'readonly');
             const store = transaction.objectStore(this.entryStore);
+
+            // getAll is significantly faster than cursor for bulk reads
             const request = store.getAll();
 
-            request.onsuccess = () => resolve(request.result || []);
-            request.onerror = () => {
-                console.error('Database Error:', request.error);
-                reject(request.error);
+            request.onsuccess = () => {
+                const results = request.result;
+                if (onProgress) onProgress(results.length, results.length);
+                resolve(results);
             };
+
+            request.onerror = () => reject(request.error);
         });
     }
 
     /**
-     * Save/Update SINGLE entry (EFFICIENT - no full rewrite!)
-     * @param {Object} entry - Entry object with required 'id' field
-     * @throws {Error} If entry is invalid or missing required fields
+     * Save or Update a single entry
      */
     async saveEntry(entry) {
-        // SECURITY: Input validation
-        if (!entry || typeof entry !== 'object') {
-            throw new Error('Invalid entry: must be an object');
-        }
-        if (!entry.id) {
-            throw new Error('Invalid entry: missing required id field');
-        }
-        // Ensure id is string for consistent indexing
-        entry.id = String(entry.id);
-
         if (!this.db) await this.open();
-
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction([this.entryStore], 'readwrite');
             const store = transaction.objectStore(this.entryStore);
-
-            // PUT = update if exists, add if not (SINGLE operation)
             const request = store.put(entry);
 
-            request.onsuccess = () => {
-                resolve(request.result);
-            };
-
-            request.onerror = () => {
-                console.error('Database Save Error:', request.error);
-                reject(request.error);
-            };
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
         });
     }
 
     /**
-     * Bulk save entries (for import/restore ONLY)
-     * @param {Array} entries - Array of entry objects
+     * Save Image Blob
      */
-    async bulkSaveEntries(entries) {
-        // Handle empty array edge case
-        if (!Array.isArray(entries)) {
-            throw new Error('Invalid entries: must be an array');
-        }
-        if (entries.length === 0) {
-            return Promise.resolve(); // Nothing to save
-        }
-
+    async saveImage(entryId, imageData) {
         if (!this.db) await this.open();
-
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([this.entryStore], 'readwrite');
-            const store = transaction.objectStore(this.entryStore);
-
-            // Use PUT (upsert), NOT clear+add
-            let completed = 0;
-            const total = entries.length;
-            let hasError = false;
-
-            entries.forEach(entry => {
-                // Validate each entry
-                if (!entry || !entry.id) {
-                    console.warn('Skipping invalid entry:', entry);
-                    completed++;
-                    if (completed === total && !hasError) resolve();
-                    return;
-                }
-                entry.id = String(entry.id); // Normalize ID
-
-                const request = store.put(entry);
-                request.onsuccess = () => {
-                    completed++;
-                    if (completed === total && !hasError) {
-                        resolve();
-                    }
-                };
-                request.onerror = () => {
-                    hasError = true;
-                    console.error('Entry save error:', request.error);
-                };
-            });
-
-            transaction.onerror = () => {
-                console.error('Database Bulk Save Error:', transaction.error);
-                reject(transaction.error);
-            };
-        });
-    }
-
-    /**
-     * Delete entry by ID
-     */
-    async deleteEntry(id) {
-        if (!this.db) await this.open();
-
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([this.entryStore], 'readwrite');
-            const store = transaction.objectStore(this.entryStore);
-            const request = store.delete(String(id));
-
-            request.onsuccess = () => {
-                resolve();
-            };
-
-            request.onerror = () => {
-                console.error('Database Delete Error:', request.error);
-                reject(request.error);
-            };
-        });
-    }
-
-    /**
-     * Atomically delete entry AND its associated image (Transaction Safe)
-     */
-    async deleteFull(id) {
-        if (!this.db) await this.open();
-
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([this.entryStore, this.imageStore], 'readwrite');
-
-            // Delete from both stores simultaneously
-            transaction.objectStore(this.entryStore).delete(String(id));
-            transaction.objectStore(this.imageStore).delete(String(id));
-
-            transaction.oncomplete = () => {
-                resolve();
-            };
-
-            transaction.onerror = () => {
-                console.error('Full Delete Error:', transaction.error);
-                reject(transaction.error);
-            };
-        });
-    }
-
-    // ====================
-    // IMAGE OPERATIONS (Separate Storage)
-    // ====================
-
-    /**
-     * Save image for entry (separate from entry data)
-     */
-    async saveImage(entryId, imageDataUrl) {
-        if (!this.db) await this.open();
-
-        // SECURITY: Defense in Depth
-        // 1. Validate Type
-        if (typeof imageDataUrl !== 'string') {
-            throw new Error('Invalid image data: must be a string (Data URL)');
-        }
-
-        // 2. Validate Size (Max 15MB safe limit for IndexedDB)
-        if (imageDataUrl.length > 15 * 1024 * 1024) {
-            throw new Error('Image too large (>15MB). Please compress defined in app logic.');
-        }
-
-        // 3. Validate Format (Prevents XSS/SVG Injection at DB layer)
-        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-        const matches = imageDataUrl.match(/^data:(image\/[a-z]+);base64,/);
-        if (!matches || !allowedTypes.includes(matches[1])) {
-            throw new Error('Invalid or unsafe image format. Only JPEG, PNG, WEBP, GIF allowed.');
-        }
-
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction([this.imageStore], 'readwrite');
             const store = transaction.objectStore(this.imageStore);
+            const request = store.put({ entryId, data: imageData });
 
-            const imageData = {
-                entryId: String(entryId),
-                data: imageDataUrl,
-                savedAt: Date.now()
-            };
-
-            const request = store.put(imageData);
-
-            request.onsuccess = () => {
-                resolve();
-            };
-
-            request.onerror = () => {
-                console.error('Image Save Error:', request.error);
-                reject(request.error);
-            };
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
         });
     }
 
     /**
-     * Get image for specific entry (lazy load)
+     * Get Image by Entry ID
      */
     async getImage(entryId) {
         if (!this.db) await this.open();
-
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction([this.imageStore], 'readonly');
             const store = transaction.objectStore(this.imageStore);
-            const request = store.get(String(entryId));
+            const request = store.get(entryId);
 
             request.onsuccess = () => {
                 const result = request.result;
                 resolve(result ? result.data : null);
             };
-
-            request.onerror = () => {
-                console.error('Image Load Error:', request.error);
-                reject(request.error);
-            };
+            request.onerror = () => reject(request.error);
         });
     }
 
     /**
-     * Delete image for entry
+     * Delete Entry (Just Text)
      */
-    async deleteImage(entryId) {
+    async deleteEntry(id) {
         if (!this.db) await this.open();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.entryStore], 'readwrite');
+            const store = transaction.objectStore(this.entryStore);
+            const request = store.delete(id);
 
+            request.onsuccess = () => resolve();
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    /**
+     * Delete Image
+     */
+    async deleteImage(id) {
+        if (!this.db) await this.open();
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction([this.imageStore], 'readwrite');
             const store = transaction.objectStore(this.imageStore);
-            const request = store.delete(String(entryId));
+            const request = store.delete(id);
 
-            request.onsuccess = () => {
-                resolve();
-            };
-
-            request.onerror = () => {
-                console.error('Image Delete Error:', request.error);
-                reject(request.error);
-            };
+            request.onsuccess = () => resolve();
+            request.onerror = () => reject(request.error);
         });
     }
 
     /**
-     * Get all images (for backup/export only)
+     * Delete Full (Entry + Image)
      */
-    async getAllImages() {
+    async deleteFull(id) {
+        if (!this.db) await this.open();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.entryStore, this.imageStore], 'readwrite');
+
+            transaction.objectStore(this.entryStore).delete(id);
+            transaction.objectStore(this.imageStore).delete(id);
+
+            transaction.oncomplete = () => resolve();
+            transaction.onerror = (e) => reject(e);
+        });
+    }
+
+    /**
+     * Get all images (for backup/export only) - With Progress
+     */
+    async getAllImages(onProgress) {
         if (!this.db) await this.open();
 
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction([this.imageStore], 'readonly');
             const store = transaction.objectStore(this.imageStore);
-            const request = store.getAll();
 
-            request.onsuccess = () => resolve(request.result || []);
-            request.onerror = () => {
-                console.error('Get All Images Error:', request.error);
-                reject(request.error);
+            // Using cursor for images to report granular progress and avoid massive memory spikes during object creation?
+            // Actually, getAll() is still faster. Let's use count + cursor for progress, or chunks.
+            // For true speed, getAll() is best. But for backup progress, we need steps.
+            // Compromise: getAllKeys() then getAll() in chunks? Or just stick to cursor for images but optimized.
+
+            // Let's stick to cursor for images to provide "Process..." feedback on large blobs
+            const countReq = store.count();
+
+            countReq.onsuccess = () => {
+                const total = countReq.result;
+                if (total === 0) return resolve([]);
+
+                const items = [];
+                const request = store.openCursor();
+                let processed = 0;
+                const updateInterval = Math.max(1, Math.ceil(total / 50));
+
+                request.onsuccess = (event) => {
+                    const cursor = event.target.result;
+                    if (cursor) {
+                        items.push(cursor.value);
+                        processed++;
+                        if (onProgress && processed % updateInterval === 0) {
+                            onProgress(processed, total);
+                        }
+                        cursor.continue();
+                    } else {
+                        if (onProgress) onProgress(total, total);
+                        resolve(items);
+                    }
+                };
+                request.onerror = () => reject(request.error);
             };
+            countReq.onerror = () => reject(countReq.error);
         });
     }
 
@@ -380,14 +283,18 @@ class OptimizedJournalDB {
      */
     async getStorageEstimate() {
         if (navigator.storage && navigator.storage.estimate) {
-            const estimate = await navigator.storage.estimate();
-            return {
-                usage: estimate.usage,
-                quota: estimate.quota,
-                usageInMB: (estimate.usage / (1024 * 1024)).toFixed(2),
-                quotaInGB: (estimate.quota / (1024 * 1024 * 1024)).toFixed(2),
-                percentUsed: ((estimate.usage / estimate.quota) * 100).toFixed(2)
-            };
+            try {
+                const estimate = await navigator.storage.estimate();
+                return {
+                    usage: estimate.usage,
+                    quota: estimate.quota,
+                    usageInMB: (estimate.usage / (1024 * 1024)).toFixed(2),
+                    quotaInGB: (estimate.quota / (1024 * 1024 * 1024)).toFixed(2),
+                    percentUsed: ((estimate.usage / estimate.quota) * 100).toFixed(2)
+                };
+            } catch (e) {
+                return null;
+            }
         }
         return null;
     }
@@ -398,18 +305,113 @@ class OptimizedJournalDB {
     async getStats() {
         if (!this.db) await this.open();
 
-        const entries = await this.getAllEntries();
-        const images = await this.getAllImages();
+        // Fast count
+        const entryCount = await this.countStore(this.entryStore);
+        const imageCount = await this.countStore(this.imageStore);
 
         return {
-            totalEntries: entries.length,
-            totalImages: images.length,
-            entriesWithImages: entries.filter(e => e.hasImage).length
+            totalEntries: entryCount,
+            totalImages: imageCount,
+            // entriesWithImages calculation usually requires iteration, skip for speed or do separate index query
+            // For now just return totals
+            entriesWithImages: 0 // Placeholder to avoid full scan
         };
     }
+
+    async countStore(storeName) {
+        const tx = this.db.transaction([storeName], 'readonly');
+        const store = tx.objectStore(storeName);
+        return new Promise((resolve) => {
+            const req = store.count();
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => resolve(0);
+        });
+    }
+
+    // ====================
+    // ROBUST RESTORE SYSTEM (RESUME CAPABILITY)
+    // ====================
+
+    /**
+     * Store raw backup data to survive refreshes
+     */
+    async saveRestorePoint(data) {
+        if (!this.db) await this.open();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction(['restore_cache'], 'readwrite');
+            const store = transaction.objectStore('restore_cache');
+            store.put({ id: 'latest_backup', data: data, timestamp: Date.now() });
+            transaction.oncomplete = () => resolve();
+            transaction.onerror = (e) => reject(e);
+        });
+    }
+
+    async getRestorePoint() {
+        if (!this.db) await this.open();
+        return new Promise((resolve) => {
+            const transaction = this.db.transaction(['restore_cache'], 'readonly');
+            const store = transaction.objectStore('restore_cache');
+            const request = store.get('latest_backup');
+            request.onsuccess = () => resolve(request.result ? request.result.data : null);
+            request.onerror = () => resolve(null);
+        });
+    }
+
+    async deleteRestorePoint() {
+        if (!this.db) await this.open();
+        return new Promise((resolve) => {
+            const transaction = this.db.transaction(['restore_cache'], 'readwrite');
+            transaction.objectStore('restore_cache').clear();
+            transaction.oncomplete = () => resolve();
+        });
+    }
+
+    /**
+     * GENERIC FAST BULK PUT WITH PROGRESS
+     * Fire-and-forget style requests for maximum throughput
+     */
+    async bulkPut(storeName, items, onProgress) {
+        if (!items || items.length === 0) return;
+        if (!this.db) await this.open();
+
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([storeName], 'readwrite');
+            const store = transaction.objectStore(storeName);
+
+            let completed = 0;
+            const total = items.length;
+            const updateInterval = Math.max(1, Math.ceil(total / 50));
+
+            items.forEach(item => {
+                const req = store.put(item);
+                req.onsuccess = () => {
+                    completed++;
+                    if (onProgress && completed % updateInterval === 0) {
+                        onProgress(completed, total);
+                    }
+                };
+                req.onerror = (e) => {
+                    // Log but continue? Or fail? Fail for data integrity.
+                    console.error('Bulk Put Error', e);
+                }
+            });
+
+            transaction.oncomplete = () => {
+                if (onProgress) onProgress(total, total); // Ensure 100%
+                resolve();
+            };
+
+            transaction.onerror = (e) => reject(e.target.error);
+        });
+    }
+
+
 }
 
-// Export for use
+// Export for use - Hybrid (Node/Window/Worker)
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = OptimizedJournalDB;
+} else {
+    self.OptimizedJournalDB = OptimizedJournalDB;
 }
+
