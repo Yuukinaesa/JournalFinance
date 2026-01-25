@@ -4,8 +4,8 @@
  */
 
 const API_CONFIG = {
-    // Relative path for same-domain Cloudflare Worker
-    BASE_URL: ''
+    // URL Backend Cloudflare Worker
+    BASE_URL: 'https://catatan.arfan-hidayat-priyantono.workers.dev'
 };
 
 class Auth {
