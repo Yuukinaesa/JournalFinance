@@ -393,7 +393,8 @@
 
                 // Force redirect to root with replace to prevent back-button loops
                 setTimeout(() => {
-                    window.location.replace('/?t=' + Date.now());
+                    // Redirect relatively to support both Root (Worker) and Subfolder (GitHub Pages)
+                    window.location.replace('./?t=' + Date.now());
                 }, 500);
 
             } catch (err) {
