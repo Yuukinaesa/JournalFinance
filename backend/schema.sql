@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS entries (
     highlight BOOLEAN DEFAULT 0,
     pinned BOOLEAN DEFAULT 0,
     has_image BOOLEAN DEFAULT 0,
+    image_data TEXT, -- Base64 string for cloud storage
     timestamp INTEGER,
     last_synced INTEGER DEFAULT (strftime('%s', 'now')),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE

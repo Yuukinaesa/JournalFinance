@@ -9,6 +9,33 @@ export default {
         const path = url.pathname;
         const method = request.method;
 
+        // --- SECURITY: RATE LIMITING (Memory-based for Hot Isolate) ---
+        // 100 requests per minute per IP
+        const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
+        const currentTime = Date.now();
+
+        if (!globalThis.rateLimiter) globalThis.rateLimiter = new Map();
+        const limiter = globalThis.rateLimiter;
+
+        const limitData = limiter.get(clientIp) || { count: 0, lastReset: currentTime };
+
+        // Reset every 60 seconds
+        if (currentTime - limitData.lastReset > 60000) {
+            limitData.count = 0;
+            limitData.lastReset = currentTime;
+        }
+
+        limitData.count++;
+        limiter.set(clientIp, limitData);
+
+        if (limitData.count > 100) {
+            return new Response(JSON.stringify({ error: 'Too Many Requests (Rate Limit Exceeded)' }), {
+                status: 429,
+                headers: corsHeaders
+            });
+        }
+        // -----------------------------------------------------------
+
         // CORS Headers
         const corsHeaders = {
             'Access-Control-Allow-Origin': '*',
