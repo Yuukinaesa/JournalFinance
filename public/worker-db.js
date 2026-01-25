@@ -183,6 +183,8 @@ async function handleRestore(fileOrData) {
                     entry.hasImage = true; // Trust existing flag if no image data but maybe in images store (if V2)
                 }
 
+                entry.amount = parseFloat(item.amount) || 0;
+
                 entries.push(entry);
             });
 

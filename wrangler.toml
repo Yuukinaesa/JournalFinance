@@ -1,0 +1,14 @@
+name = "catatan"
+main = "backend/worker.js"
+compatibility_date = "2024-01-01"
+
+# Binding Database
+[[d1_databases]]
+binding = "DB" # Ini variabel yang dipakai di worker.js (env.DB)
+database_name = "journal-db"
+database_id = "0611eed4-6d45-452a-ad81-bb1f83fd3a12"
+
+# Static Assets (Frontend)
+[assets]
+directory = "public"
+binding = "ASSETS"

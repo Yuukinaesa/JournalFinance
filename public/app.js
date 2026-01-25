@@ -12,51 +12,117 @@
 
 window.app = {
     data: [],
-    STORAGE_KEY: 'journalFinanceData', // Backward compatibility
+    STORAGE_KEY: 'journalFinanceData',
     deleteTargetId: null,
     closeTimeout: null,
-    db: new OptimizedJournalDB(), // Uses external OptimizedDB
+    // db: new OptimizedJournalDB(), // REMOVED: Full Cloud Migration
+    data: [],
     worker: null,
 
     async init() {
         try {
-            // Initialize Worker with Safe Fallback
-            try {
-                if (window.Worker) {
-                    this.worker = new Worker('worker-db.js');
-                    this.worker.onerror = (e) => {
-                        console.warn('Worker failed, falling back to main thread:', e);
-                        this.worker = null;
-                    };
-                    this.initWorkerListener();
-                }
-            } catch (err) {
-                console.warn('Could not initialize Worker (likely file:// protocol), falling back to main thread.', err);
-                this.worker = null;
+            // AUTH CHECK
+            // Ensure Auth is loaded strictly from auth.js before app logic
+            if (typeof Auth === 'undefined') {
+                console.error('Auth module not loaded');
+                return;
             }
 
-            await this.db.open();
-            this.data = await this.db.getAllEntries();
+            if (!Auth.isAuthenticated()) {
+                window.location.replace('login.html');
+                return;
+            }
 
-            // Migration
-            if (this.data.length === 0) await this.migrateFromLocalStorage();
-            if (!Array.isArray(this.data)) this.data = [];
+            // Cleanup URL params
+            if (window.location.search) {
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+
+            // SHOW USER INFO
+            const user = Auth.getUser();
+            if (user && user.email) {
+                const header = document.querySelector('header');
+                const existingUserDisplay = document.getElementById('userDisplay');
+                if (!existingUserDisplay) {
+                    const userDiv = document.createElement('div');
+                    userDiv.id = 'userDisplay';
+                    userDiv.style.cssText = 'position: absolute; top: 1rem; right: 1rem; font-size: 0.85rem; color: var(--text-muted); background: var(--bg-card); padding: 4px 12px; border-radius: 20px; border: 1px solid var(--border-color); display: flex; align-items: center; gap: 8px; z-index: 50;';
+                    userDiv.innerHTML = `
+                        <div style="width: 8px; height: 8px; background: #10b981; border-radius: 50%;"></div>
+                        <span>${user.email}</span>
+                        <a href="#" id="btnLogout" style="color: #ef4444; margin-left: 8px; text-decoration: none; font-weight: 600;">Keluar</a>
+                     `;
+                    // Append to body or header depending on layout. Body is safer for absolute positioning.
+                    document.body.appendChild(userDiv);
+
+                    // Attach listener dynamically to avoid CSP inline-script violation
+                    document.getElementById('btnLogout').addEventListener('click', (e) => {
+                        e.preventDefault();
+                        this.logout();
+                    });
+                }
+            }
+
+
+
+            // --- Cloud Init ---
+            this.showProgress(10, 'Memuat Data', 'Mengambil dari server...');
+
+            try {
+                this.data = await Auth.fetchEntries();
+            } catch (e) {
+                console.error('Cloud fetch failed:', e);
+                this.showToast('⚠️ Gagal memuat data cloud');
+            } finally {
+                this.hideProgress();
+            }
 
             this.registerServiceWorker();
             this.initTheme();
             this.initEventListeners();
             this.renderList();
 
-            // RESUME CHECK
+            // RESUME CHECK - Keeping for File Restore Only
             if (localStorage.getItem('APP_STATUS') === 'RESTORING') {
                 this.resumeRestore();
             }
+
+            // AUTO MIGRATE V1 (LocalStorage) -> V2 (Cloud)
+            await this.migrateFromLocalStorage();
 
         } catch (e) {
             console.error('Core init error:', e);
             this.data = [];
             this.showToast('⚠️ Error initializing app.');
         }
+    },
+
+    async performCloudSync() {
+        try {
+            const serverEntries = await Auth.syncWithCloud(this.data);
+            if (serverEntries) {
+                // Determine if we need to update local
+                // For simplicity: If server has more entries, or different count, we overwrite local
+                // A true "Sync" requires 2-way merge logic by timestamp.
+                // For now: Server Authority Model (if server has data, use it)
+
+                if (serverEntries.length > 0 && JSON.stringify(serverEntries) !== JSON.stringify(this.data)) {
+                    this.data = serverEntries;
+                    // Persist to local IndexedDB
+                    await this.db.clearAll();
+                    await this.db.bulkPut('entries', this.data);
+                    // Images are not yet synced to cloud in this version (only text)
+                    this.renderList();
+                    console.log('✅ Cloud Sync Complete');
+                }
+            }
+        } catch (e) {
+            console.warn('Background sync failed:', e);
+        }
+    },
+
+    logout() {
+        this.initiateLogout();
     },
 
     initWorkerListener() {
@@ -128,8 +194,8 @@ window.app = {
         }
 
         if (operation === 'restore' || operation === 'reset') {
-            // Reload data
-            this.db.getAllEntries().then(entries => {
+            // Reload data from Cloud
+            Auth.fetchEntries().then(entries => {
                 this.data = entries;
                 this.renderList();
 
@@ -188,16 +254,31 @@ window.app = {
             // Give UI a moment to render
             await new Promise(r => setTimeout(r, 50));
 
-            const entries = await this.db.getAllEntries();
+            const entries = await Auth.fetchEntries();
 
             // 2. Images
             this.updateProgressUI(40, 'backup', 'fetching_images');
             await new Promise(r => setTimeout(r, 50));
 
-            const images = await this.db.getAllImages((c, t) => {
-                const pct = 40 + (c / t * 40);
+            const images = [];
+            let processed = 0;
+            const entriesWithImages = entries.filter(e => e.hasImage);
+            const totalWithImages = entriesWithImages.length;
+
+            for (const entry of entriesWithImages) {
+                try {
+                    const imgData = await Auth.fetchImage(entry.id);
+                    if (imgData) {
+                        images.push({ entryId: entry.id, data: imgData });
+                    }
+                } catch (err) {
+                    console.warn('Failed to backup image for', entry.id);
+                }
+
+                processed++;
+                const pct = 40 + (processed / totalWithImages * 40);
                 this.updateProgressUI(pct, 'backup', 'fetching_images');
-            });
+            }
 
             // 3. Serialize
             this.updateProgressUI(90, 'backup', 'compressing');
@@ -295,80 +376,74 @@ window.app = {
 
     async processRestoreMain(json) {
         try {
-            // Detect Legacy Format (Array) and Normalize
-            if (Array.isArray(json)) {
-                const entries = [];
-                const images = [];
+            let entriesToRestore = [];
+            let imagesToRestore = [];
 
+            // Detect & Normalize Format
+            if (Array.isArray(json)) {
+                // Legacy Array Format (V1)
                 json.forEach(item => {
-                    const entry = {
+                    entriesToRestore.push({
                         id: String(item.id || Date.now() + Math.random()),
                         date: String(item.date || new Date().toISOString().slice(0, 10)),
                         title: String(item.title || 'Untitled'),
                         type: String(item.type || 'lainnya'),
+                        amount: parseFloat(item.amount) || 0,
                         reason: String(item.reason || ''),
                         highlight: !!item.highlight,
                         pinned: !!item.pinned,
                         timestamp: Number(item.timestamp) || Date.now(),
-                        hasImage: false
-                    };
-
-                    if (item.image && typeof item.image === 'string') {
-                        images.push({
-                            entryId: entry.id,
-                            data: item.image
-                        });
-                        entry.hasImage = true;
-                    } else if (item.hasImage) {
-                        entry.hasImage = true;
-                    }
-                    entries.push(entry);
+                        hasImage: !!(item.image || item.hasImage),
+                        imageData: (typeof item.image === 'string') ? item.image : null
+                    });
                 });
+            } else if (json.version === 2 && Array.isArray(json.entries)) {
+                // Version 2 Format
+                entriesToRestore = json.entries.map(item => ({
+                    ...item,
+                    amount: parseFloat(item.amount) || 0, // IMPORTANT: Default to 0 if missing
+                    hasImage: !!item.hasImage,
+                    imageData: null // Will be populated from images array if exists
+                }));
 
-                json = {
-                    version: 2,
-                    timestamp: new Date().toISOString(),
-                    entries: entries,
-                    images: images
-                };
+                // Map separate images back to entries
+                if (Array.isArray(json.images)) {
+                    json.images.forEach(img => {
+                        const target = entriesToRestore.find(e => String(e.id) === String(img.entryId));
+                        if (target) {
+                            target.imageData = img.data;
+                            target.hasImage = true;
+                        }
+                    });
+                }
+            } else {
+                throw new Error('Format file tidak valid/didukung.');
             }
 
-            if (json.version !== 2 || !Array.isArray(json.entries)) {
-                throw new Error('Format file tidak valid.');
+            // Restore Process (Upload to Cloud)
+            const total = entriesToRestore.length;
+            this.showProgress(0, 'Membersihkan Cloud...', `Menghapus data lama...`);
+
+            // 1. Wipe Existing Cloud Data (Overwrite Mode)
+            await Auth.resetCloud();
+
+            this.showProgress(0, 'Restore ke Cloud...', `Memproses ${total} data...`);
+
+            // Sequential Upload to avoid rate limits / connection issues
+            // (Parallel Promise.all is faster but risky for large restoration)
+            for (let i = 0; i < total; i++) {
+                const entry = entriesToRestore[i];
+                try {
+                    await Auth.saveEntry(entry);
+                } catch (e) {
+                    console.error('Failed to restore entry', entry.id, e);
+                }
+
+                // Update Progress UI
+                const pct = Math.floor(((i + 1) / total) * 100);
+                this.updateProgressUI(pct, 'restore', `Mengupload ${i + 1}/${total}...`);
             }
 
-            // 1. Save checkpoint
-            this.updateProgressUI(5, 'restore', 'saving_checkpoint');
-            await this.db.saveRestorePoint(json);
-
-            // 2. Clear
-            this.updateProgressUI(10, 'restore', 'clearing_db');
-            await this.db.clearAll();
-
-            const totalEntries = json.entries.length;
-            const totalImages = (json.images || []).length;
-
-            // 3. Entries
-            if (totalEntries > 0) {
-                this.updateProgressUI(15, 'restore', 'restoring_entries');
-                await this.db.bulkPut('entries', json.entries, (c, t) => {
-                    const pct = 15 + (c / totalEntries * 35);
-                    this.updateProgressUI(pct, 'restore', 'restoring_entries');
-                });
-            }
-
-            // 4. Images
-            if (totalImages > 0) {
-                this.updateProgressUI(50, 'restore', 'restoring_images');
-                const imageChunks = json.images.filter(img => img.data && img.data.startsWith('data:image/'));
-                await this.db.bulkPut('images', imageChunks, (c, t) => {
-                    const pct = 50 + (c / totalImages * 45);
-                    this.updateProgressUI(pct, 'restore', 'restoring_images');
-                });
-            }
-
-            // Cleanup
-            await this.db.deleteRestorePoint();
             this.handleSuccess('restore');
 
         } catch (e) {
@@ -412,37 +487,173 @@ window.app = {
             try {
                 const parsed = JSON.parse(stored);
                 if (Array.isArray(parsed) && parsed.length > 0) {
-                    for (const entry of parsed) {
-                        const imageData = entry.image;
-                        delete entry.image;
-                        entry.hasImage = !!imageData;
-                        await this.db.saveEntry(entry);
-                        if (imageData) {
-                            await this.db.saveImage(entry.id, imageData);
+                    this.showProgress(0, 'Migrasi Data Lama', 'Mengupload ke Cloud...');
+                    let successCount = 0;
+
+                    for (let i = 0; i < parsed.length; i++) {
+                        const entry = parsed[i];
+                        try {
+                            // Format check
+                            const newEntry = {
+                                id: String(entry.id || Date.now() + i),
+                                date: entry.date,
+                                type: entry.type || 'lainnya',
+                                amount: parseFloat(entry.amount) || 0,
+                                title: entry.title || 'Untitled',
+                                reason: entry.reason || '',
+                                highlight: !!entry.highlight,
+                                pinned: !!entry.pinned,
+                                hasImage: !!entry.image,
+                                imageData: entry.image || null,
+                                timestamp: entry.timestamp || Date.now()
+                            };
+
+                            await Auth.saveEntry(newEntry);
+                            successCount++;
+                            this.updateProgressUI((i / parsed.length) * 100, 'restore', `Migrasi ${i + 1}/${parsed.length}`);
+                        } catch (err) {
+                            console.error('Migration failed for item', entry, err);
                         }
                     }
-                    this.data = await this.db.getAllEntries();
-                    localStorage.removeItem(this.STORAGE_KEY);
-                    this.showToast(`✅ Migrasi ${parsed.length} entri ke V2 berhasil!`);
+
+                    // Clear old storage after successful migration
+                    if (successCount > 0) {
+                        localStorage.removeItem(this.STORAGE_KEY);
+                        this.data = await Auth.fetchEntries();
+                        this.renderList();
+                        this.showToast(`✅ Berhasil migrasi ${successCount} catatan ke Cloud!`);
+                    }
                 }
             } catch (e) {
                 console.error('Migration error:', e);
+                this.showToast('Gagal migrasi data lama.');
+            } finally {
+                this.hideProgress();
             }
         }
     },
 
     registerServiceWorker() {
         if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+            // Unregister old scopes to ensure fresh worker logic
+            // navigator.serviceWorker.getRegistrations().then(registrations => {
+            //    for(let registration of registrations) registration.unregister();
+            // });
+
             navigator.serviceWorker.register('./sw.js')
+                .then(reg => {
+                    // console.log('SW Registered');
+                    reg.onupdatefound = () => {
+                        const installingWorker = reg.installing;
+                        installingWorker.onstatechange = () => {
+                            if (installingWorker.state === 'installed') {
+                                if (navigator.serviceWorker.controller) {
+                                    console.log('New content available; please refresh.');
+                                    this.showToast('Update tersedia. Refresh untuk menerapkan.');
+                                } else {
+                                    console.log('Content is cached for offline use.');
+                                }
+                            }
+                        };
+                    };
+                })
                 .catch(err => console.error('❌ SW registration failed:', err));
 
             // PWA Install Prompt
             window.addEventListener('beforeinstallprompt', (e) => {
                 e.preventDefault();
                 this.deferredPrompt = e;
+                console.log('✅ PWA Install Event captured. Custom Install Button activated.');
                 const btn = document.getElementById('installBtn');
                 if (btn) btn.style.display = 'flex';
             });
+        }
+    },
+
+    // --- Sync Logic ---
+
+    async performSync() {
+        if (!Auth.isAuthenticated()) return;
+
+        try {
+            this.showToast('🔄 Sinkronisasi cloud...');
+
+            // 1. Gather Local Data
+            const localEntries = await this.db.getAllEntries();
+
+            // 2. Attach Images for Upload (Only if we have them)
+            const payload = await Promise.all(localEntries.map(async (entry) => {
+                let imageData = null;
+                if (entry.hasImage) {
+                    imageData = await this.db.getImage(entry.id);
+                }
+                // Only send imageData if we have it, otherwise send null (server keeps existing)
+                return { ...entry, imageData: imageData || null };
+            }));
+
+            // 3. Send to Cloud & Get Updates (Metadata Only)
+            const cloudEntries = await Auth.syncWithCloud(payload);
+
+            if (cloudEntries && Array.isArray(cloudEntries)) {
+                // 4. Intelligent Merge - Server is Truth for Metadata
+
+                // A. Update Entries Store
+                // We can safely overwrite all entries because server returned comprehensive list
+                await this.db.clearStore(this.db.entryStore); // Custom method or use transaction
+                // Actually OptimizedDB doesn't have clearStore public, but clearAll does both.
+                // Let's implement a smarter update manually.
+
+                // Get all local images first to preserve them
+                const allImages = await this.db.getAllImages();
+                const imageMap = new Map();
+                allImages.forEach(img => imageMap.set(String(img.entryId), img.data));
+
+                // Clear everything to be clean
+                await this.db.clearAll();
+
+                const entriesToSave = [];
+                const imagesToSave = [];
+
+                for (const item of cloudEntries) {
+                    // Normalize
+                    const entryData = {
+                        id: String(item.id),
+                        date: item.date,
+                        title: item.title,
+                        type: item.type,
+                        amount: parseFloat(item.amount) || 0,
+                        reason: item.reason,
+                        highlight: !!item.highlight,
+                        pinned: !!item.pinned,
+                        hasImage: !!item.hasImage, // Server flag
+                        timestamp: item.timestamp,
+                        last_synced: item.last_synced
+                        // NO imageData from server (it's null)
+                    };
+
+                    entriesToSave.push(entryData);
+
+                    // Restore Image if we had it locally OR if server sent it (unlikely in new optimize logic)
+                    if (entryData.hasImage) {
+                        // Check if we have it in memory
+                        if (imageMap.has(entryData.id)) {
+                            imagesToSave.push({ entryId: entryData.id, data: imageMap.get(entryData.id) });
+                        }
+                        // If we don't have it, it will stay missing locally and use Lazy Load via API
+                    }
+                }
+
+                // Bulk Save
+                if (entriesToSave.length > 0) await this.db.bulkPut('entries', entriesToSave);
+                if (imagesToSave.length > 0) await this.db.bulkPut('images', imagesToSave);
+
+                this.data = entriesToSave;
+                this.renderList();
+                this.showToast('✅ Data tersinkronisasi');
+            }
+        } catch (e) {
+            console.error('Sync error:', e);
+            this.showToast('⚠️ Gagal sinkronisasi: ' + (e.message || 'Koneksi bermasalah'));
         }
     },
 
@@ -498,35 +709,31 @@ window.app = {
         bind('confirmDeleteBtn', 'click', () => this.confirmDelete());
 
         // Reset Modal
-        // Reset Storage Trigger is dynamically rendered in stats, need event delegation there or bind later.
-        // Actually, the button "RESET" is in the stats bar string. 
-        // Better: Bind delegation on statsBar
-        const statsBar = document.getElementById('statsBar');
-        if (statsBar) {
-            statsBar.addEventListener('click', (e) => {
-                if (e.target.matches('[data-action="reset-storage"]')) {
-                    this.initiateReset();
-                }
-            });
-        }
-
+        bind('triggerResetBtn', 'click', () => this.initiateReset());
         bind('closeResetModalBtn', 'click', () => this.closeResetModal());
         bind('cancelResetBtn', 'click', () => this.closeResetModal());
         bind('btnConfirmReset', 'click', () => this.confirmReset());
 
         // Reset Input Validation
-        bind('resetConfirmInput', 'keyup', (e) => {
+        bind('resetConfirmInput', 'input', (e) => { // Changed keyup to input
             const btn = document.getElementById('btnConfirmReset');
             if (e.target.value.toLowerCase() === 'yes') {
                 btn.disabled = false;
                 btn.style.opacity = '1';
                 btn.style.cursor = 'pointer';
+                btn.style.boxShadow = '0 4px 12px rgba(239, 68, 68, 0.3)';
             } else {
                 btn.disabled = true;
                 btn.style.opacity = '0.5';
                 btn.style.cursor = 'not-allowed';
+                btn.style.boxShadow = 'none';
             }
         });
+
+        // Logout Modal
+        bind('closeLogoutModalBtn', 'click', () => this.closeLogoutModal());
+        bind('cancelLogoutBtn', 'click', () => this.closeLogoutModal());
+        bind('btnConfirmLogout', 'click', () => this.confirmLogout());
 
         // Global Journal List Delegation (Edit, Highlight, Pin, Delete)
         const list = document.getElementById('journalList');
@@ -555,9 +762,11 @@ window.app = {
             const entryModal = document.getElementById('entryModal');
             const deleteModal = document.getElementById('deleteModal');
             const resetModal = document.getElementById('resetModal');
+            const logoutModal = document.getElementById('logoutModal');
             if (event.target == entryModal) this.closeModal();
             if (event.target == deleteModal) this.closeDeleteModal();
             if (event.target == resetModal) this.closeResetModal();
+            if (event.target == logoutModal) this.closeLogoutModal();
         };
     },
 
@@ -669,6 +878,7 @@ window.app = {
         const id = document.getElementById('entryId').value;
         const date = document.getElementById('entryDate').value;
         const type = document.getElementById('entryType').value;
+        const amount = 0; // Removed from UI, defaulted to 0
         const title = document.getElementById('entryTitle').value;
         const reason = document.getElementById('entryReason').value;
         const highlight = document.getElementById('entryHighlight').checked;
@@ -705,6 +915,7 @@ window.app = {
             id: id || Date.now().toString(),
             date,
             type,
+            amount,
             title,
             reason,
             highlight,
@@ -714,22 +925,23 @@ window.app = {
         };
 
         try {
-            await this.db.saveEntry(entry);
-            if (imageData) {
-                await this.db.saveImage(entry.id, imageData);
-            }
-            if (id && this.pendingImageClear) {
-                await this.db.deleteImage(entry.id);
-                entry.hasImage = false;
-            }
+            // Full Cloud Save
+            // Include imageData directly in the payload
+            const payload = { ...entry, imageData };
+
+            await Auth.saveEntry(payload);
 
             if (id) {
                 const index = this.data.findIndex(item => String(item.id) === String(id));
-                if (index > -1) this.data[index] = entry;
-                this.showToast('✅ Catatan diperbarui');
+                if (index > -1) {
+                    this.data[index] = { ...this.data[index], ...entry }; // Update local state for immediate UI
+                    // If image changed, we might need to update the UI specifically or reload
+                    if (hasImage) this.data[index].hasImage = true;
+                }
+                this.showToast('✅ Catatan diperbarui (Cloud)');
             } else {
                 this.data.unshift(entry);
-                this.showToast('✅ Catatan ditambahkan');
+                this.showToast('✅ Catatan ditambahkan (Cloud)');
             }
 
             this.pendingImageClear = false;
@@ -738,7 +950,7 @@ window.app = {
 
         } catch (error) {
             console.error('Save entry error:', error);
-            this.showToast('❌ Error menyimpan. Silakan coba lagi.');
+            this.showToast('❌ Error menyimpan ke Cloud: ' + error.message);
         }
     },
 
@@ -757,13 +969,13 @@ window.app = {
     async confirmDelete() {
         if (this.deleteTargetId) {
             try {
-                await this.db.deleteFull(this.deleteTargetId);
+                await Auth.deleteEntry(this.deleteTargetId);
                 this.data = this.data.filter(item => String(item.id) !== String(this.deleteTargetId));
-                this.showToast('✅ Catatan berhasil dihapus');
+                this.showToast('✅ Catatan dihapus (Cloud)');
                 this.renderList();
             } catch (error) {
                 console.error('Delete error:', error);
-                this.showToast('❌ Error menghapus.');
+                this.showToast('❌ Gagal menghapus: ' + error.message);
             }
         }
         this.closeDeleteModal();
@@ -778,6 +990,7 @@ window.app = {
         btn.disabled = true;
         btn.style.opacity = '0.5';
         btn.style.cursor = 'not-allowed';
+        btn.style.boxShadow = 'none';
 
         setTimeout(() => input.focus(), 100);
         modal.classList.add('open');
@@ -792,15 +1005,42 @@ window.app = {
         if (input.value.toLowerCase() !== 'yes') return;
 
         try {
-            await this.db.clearAll();
+            this.showProgress(0, 'Menghapus Data', 'Membersihkan Cloud...');
+
+            await Auth.resetCloud();
+
             this.data = [];
             localStorage.removeItem(this.STORAGE_KEY);
-            this.showToast('✅ Semua data berhasil di-reset');
+
+            this.showToast('✅ Semua data (HP & Cloud) berhasil dihapus');
             this.renderList();
             this.closeResetModal();
         } catch (e) {
             console.error('Reset error:', e);
-            this.showToast('❌ Gagal reset storage');
+            this.showToast('❌ Gagal reset: ' + e.message);
+        } finally {
+            this.hideProgress();
+        }
+    },
+
+    // --- Logout Logic ---
+
+    initiateLogout() {
+        document.getElementById('logoutModal').classList.add('open');
+    },
+
+    closeLogoutModal() {
+        document.getElementById('logoutModal').classList.remove('open');
+    },
+
+    confirmLogout() {
+        try {
+            Auth.logout();
+            window.location.replace('login.html');
+        } catch (e) {
+            console.error('Logout error:', e);
+            localStorage.clear();
+            window.location.replace('login.html');
         }
     },
 
@@ -811,13 +1051,14 @@ window.app = {
         document.getElementById('entryId').value = item.id;
         document.getElementById('entryDate').value = item.date;
         document.getElementById('entryType').value = item.type;
+        // document.getElementById('entryAmount').value = item.amount || ''; // Removed from UI
         document.getElementById('entryTitle').value = item.title;
         document.getElementById('entryReason').value = item.reason || '';
         document.getElementById('entryHighlight').checked = !!item.highlight;
         document.getElementById('entryPin').checked = !!item.pinned;
 
         if (item.hasImage) {
-            this.db.getImage(item.id).then(imageData => {
+            Auth.fetchImage(item.id).then(imageData => {
                 if (imageData) {
                     const img = document.getElementById('imagePreview');
                     img.src = imageData;
@@ -840,9 +1081,15 @@ window.app = {
         if (!entry) return;
         try {
             entry.highlight = !entry.highlight;
-            await this.db.saveEntry(entry);
+            // Optimistic update
             this.renderList();
-        } catch (e) { entry.highlight = !entry.highlight; }
+            await Auth.saveEntry(entry);
+        } catch (e) {
+            console.error('Highlight error', e);
+            entry.highlight = !entry.highlight; // Revert
+            this.renderList();
+            this.showToast('Gagal update highlight');
+        }
     },
 
     async togglePin(id) {
@@ -850,9 +1097,15 @@ window.app = {
         if (!entry) return;
         try {
             entry.pinned = !entry.pinned;
-            await this.db.saveEntry(entry);
+            // Optimistic update
             this.renderList();
-        } catch (e) { entry.pinned = !entry.pinned; }
+            await Auth.saveEntry(entry);
+        } catch (e) {
+            console.error('Pin error', e);
+            entry.pinned = !entry.pinned; // Revert
+            this.renderList();
+            this.showToast('Gagal update pin');
+        }
     },
 
     // --- Rendering ---
@@ -867,7 +1120,8 @@ window.app = {
         const totalNotes = filtered.length;
         const totalImages = filtered.filter(i => i.hasImage).length;
         const statsEl = document.getElementById('statsBar');
-        const storageStats = await this.db.getStorageEstimate();
+        // Storage stats irrelevant for Cloud
+        const storageStats = null;
 
         if (statsEl) {
             let storageHTML = '';
@@ -930,10 +1184,13 @@ window.app = {
             card.innerHTML = `
                  <div class="card-header">
                      <div class="card-title-group">
-                         <span class="card-date">${this.formatDate(item.date)}</span>
-                         <h3 class="card-title">${titleSafe}</h3>
-                         <span class="card-badge badge-${typeSafe}">${typeSafe}</span>
-                     </div>
+                          <span class="card-date">${this.formatDate(item.date)}</span>
+                          <h3 class="card-title">${titleSafe}</h3>
+                          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                            <span class="card-badge badge-${typeSafe}">${typeSafe}</span>
+                            ${item.amount ? `<span class="card-badge" style="background:var(--bg-glass);color:var(--text-main);border:1px solid var(--border-color);">${new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(item.amount)}</span>` : ''}
+                          </div>
+                      </div>
                      <div class="card-actions">
                          <button class="btn-icon action-star ${item.highlight ? 'active' : ''}" data-action="highlight" data-id="${cleanId}" aria-label="Highlight">
                              <svg pointer-events="none" viewBox="0 0 24 24" fill="${item.highlight ? 'currentColor' : 'none'}" stroke="${item.highlight ? 'none' : 'currentColor'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
@@ -965,30 +1222,40 @@ window.app = {
         setTimeout(() => this.loadImagesLazy(), 100);
     },
 
-    loadImagesLazy() {
+    async loadImagesLazy() {
         const containers = document.querySelectorAll('.image-container');
-        containers.forEach(async container => {
+        for (const container of containers) {
             const entryId = container.dataset.entryId;
-            if (!entryId) return;
+            if (!entryId) continue;
 
             try {
-                const imageData = await this.db.getImage(entryId);
-                if (imageData && container) {
-                    container.innerHTML = '';
-                    const img = document.createElement('img');
-                    img.className = 'card-image';
-                    img.style.cssText = 'width:100%; max-height:300px; object-fit:contain; border-radius:8px; border:1px solid var(--border-color); background:#000; animation: fadeIn 0.3s;';
-                    if (imageData.startsWith('data:image/')) {
-                        img.src = imageData;
-                        img.alt = 'Lampiran Gambar Catatan';
-                    }
-                    container.appendChild(img);
+                // Fetch from Cloud API
+                const imageData = await Auth.fetchImage(entryId);
+
+                if (imageData) {
+                    container.innerHTML = `<img src="${imageData}" style="width:100%; border-radius:8px; display:block; box-shadow: var(--shadow-sm);" loading="lazy" alt="Attachment">`;
+
+                    // Simple modal for image view
+                    const img = container.querySelector('img');
+                    img.style.cursor = 'zoom-in';
+                    img.onclick = () => {
+                        const modal = document.createElement('div');
+                        modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:zoom-out;animation:fadeIn 0.2s;';
+                        modal.innerHTML = `<img src="${imageData}" style="max-width:95%;max-height:95vh;border-radius:4px;box-shadow:0 0 30px rgba(0,0,0,0.5);">`;
+                        modal.onclick = () => modal.remove();
+                        document.body.appendChild(modal);
+                    };
+
+                } else {
+                    container.style.display = 'none';
                 }
-            } catch (err) {
-                if (container) container.innerText = '⚠️ Gagal memuat gambar';
+            } catch (e) {
+                console.error('Error loading image', entryId, e);
+                container.style.display = 'none';
             }
-        });
+        }
     },
+
 
     // --- Helpers ---
 
@@ -1063,6 +1330,7 @@ window.app = {
             document.getElementById('entryForm').reset();
             document.getElementById('entryId').value = '';
             document.getElementById('entryDate').value = new Date().toISOString().slice(0, 10);
+            // document.getElementById('entryAmount').value = ''; // Removed from UI
             document.getElementById('modalTitle').innerText = 'Tambah Catatan';
             this.clearImage();
         }

@@ -13,27 +13,42 @@ desktop.ini
 *.swo
 *.sublime-*
 
+# Cloudflare / Wrangler / Secrets (CRITICAL)
+.wrangler/
+.env
+.dev.vars
+wrangler.toml.backup
+
+# Databases & Local State
+*.sqlite
+*.sqlite3
+*.db
+*.wal
+*.shm
+
 # Logs
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Temp
+# Temp / Junk
 *.tmp
 .cache/
 .temp/
+backend/temp_*.txt
+temp_*.txt
 
-# Build (if using build tools later)
+# Build
 dist/
 build/
 
-# Documentation (development only)
+# Documentation (Internal)
 AUDIT_CRITICAL_FINDINGS.md
 REFACTORING_GUIDE.md
 CARA_CLEAR_STORAGE.md
 
-# Keep these for deployment
+# Allowed for Deployment
 !README.md
 !DEPLOYMENT_GUIDE.md
 !ACTION_PLAN.md
