@@ -3,9 +3,13 @@
  * Connecting to Cloudflare Workers Backend
  */
 
+const WORKER_URL = 'https://catatan.arfan-hidayat-priyantono.workers.dev';
+
 const API_CONFIG = {
-    // URL Backend Cloudflare Worker
-    BASE_URL: 'https://catatan.arfan-hidayat-priyantono.workers.dev'
+    // Logic Dual Support:
+    // 1. Jika dibuka dari Cloudflare (workers.dev) -> Gunakan Relative Path (lebih cepat)
+    // 2. Jika dibuka dari GitHub Pages / Localhost -> Gunakan Absolute URL
+    BASE_URL: window.location.hostname.includes('workers.dev') ? '' : WORKER_URL
 };
 
 class Auth {
