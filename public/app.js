@@ -14,8 +14,9 @@ window.app = {
     data: [],
     STORAGE_KEY: 'journalFinanceData',
     deleteTargetId: null,
+    deleteTargetId: null,
     closeTimeout: null,
-    // db: new OptimizedJournalDB(), // REMOVED: Full Cloud Migration
+    db: new OptimizedJournalDB(),
     data: [],
     worker: null,
 
@@ -83,6 +84,8 @@ window.app = {
                                 await this.showAlert('Gagal', 'Logout global sistem gagal: ' + err.message + '\n\nAnda tetap akan logout dari perangkat ini.');
                             } finally {
                                 this.logout();
+
+                                window.onbeforeunload = null;
                                 window.location.reload();
                             }
                         }
@@ -227,12 +230,12 @@ window.app = {
                 this.renderList();
 
                 if (operation === 'restore') {
-                    this.showToast('✅ Restore Selesai. Konfirmasi muat ulang...');
                     localStorage.removeItem('APP_STATUS');
-                    setTimeout(() => {
-                        window.onbeforeunload = () => true;
-                        window.location.reload();
-                    }, 2000);
+                    this.showAlert('Restore Berhasil', 'Data telah dipulihkan. Aplikasi akan dimuat ulang untuk memproses data baru.')
+                        .then(() => {
+                            window.onbeforeunload = null;
+                            window.location.reload();
+                        });
                 } else {
                     this.showToast('✅ Reset Selesai');
                     localStorage.removeItem(this.STORAGE_KEY);
@@ -605,83 +608,88 @@ window.app = {
         if (!Auth.isAuthenticated()) return;
 
         try {
-            this.showToast('🔄 Sinkronisasi cloud...');
+            this.showToast('🔄 Mengunduh data terbaru...');
 
-            // 1. Gather Local Data
+            // AUTHORITY: CLOUD IS TRUTH
+            // We do not upload "local" changes here because "Online Only" app pushes changes immediately on save.
+            // Any "local only" data is considered stale/failed and should be overwritten by Cloud Truth.
+
+            // 1. Fetch All Metadata from Cloud
+            const cloudEntries = await Auth.fetchEntries();
+            if (!Array.isArray(cloudEntries)) throw new Error('Invalid cloud response');
+
+            // 2. Get All Local IDs to determine what to delete (Zombies)
+            // We use getAllEntries just to get IDs, or optimize if DB has getKeys method
             const localEntries = await this.db.getAllEntries();
+            const localMap = new Map();
+            localEntries.forEach(e => localMap.set(String(e.id), e));
 
-            // 2. Attach Images for Upload (Only if we have them)
-            const payload = await Promise.all(localEntries.map(async (entry) => {
-                let imageData = null;
-                if (entry.hasImage) {
-                    imageData = await this.db.getImage(entry.id);
+            const cloudMap = new Map();
+            cloudEntries.forEach(e => cloudMap.set(String(e.id), e));
+
+            // 3. Diffing
+            const toDelete = [];
+            const toUpdate = [];
+
+            // A. Identify Zombies (Local items not in Cloud)
+            for (const localId of localMap.keys()) {
+                if (!cloudMap.has(localId)) {
+                    toDelete.push(localId);
                 }
-                // Only send imageData if we have it, otherwise send null (server keeps existing)
-                return { ...entry, imageData: imageData || null };
-            }));
-
-            // 3. Send to Cloud & Get Updates (Metadata Only)
-            const cloudEntries = await Auth.syncWithCloud(payload);
-
-            if (cloudEntries && Array.isArray(cloudEntries)) {
-                // 4. Intelligent Merge - Server is Truth for Metadata
-
-                // A. Update Entries Store
-                // We can safely overwrite all entries because server returned comprehensive list
-                await this.db.clearStore(this.db.entryStore); // Custom method or use transaction
-                // Actually OptimizedDB doesn't have clearStore public, but clearAll does both.
-                // Let's implement a smarter update manually.
-
-                // Get all local images first to preserve them
-                const allImages = await this.db.getAllImages();
-                const imageMap = new Map();
-                allImages.forEach(img => imageMap.set(String(img.entryId), img.data));
-
-                // Clear everything to be clean
-                await this.db.clearAll();
-
-                const entriesToSave = [];
-                const imagesToSave = [];
-
-                for (const item of cloudEntries) {
-                    // Normalize
-                    const entryData = {
-                        id: String(item.id),
-                        date: item.date,
-                        title: item.title,
-                        type: item.type,
-                        amount: parseFloat(item.amount) || 0,
-                        reason: item.reason,
-                        highlight: !!item.highlight,
-                        pinned: !!item.pinned,
-                        hasImage: !!item.hasImage, // Server flag
-                        timestamp: item.timestamp,
-                        last_synced: item.last_synced
-                        // NO imageData from server (it's null)
-                    };
-
-                    entriesToSave.push(entryData);
-
-                    // Restore Image if we had it locally OR if server sent it (unlikely in new optimize logic)
-                    if (entryData.hasImage) {
-                        // Check if we have it in memory
-                        if (imageMap.has(entryData.id)) {
-                            imagesToSave.push({ entryId: entryData.id, data: imageMap.get(entryData.id) });
-                        }
-                        // If we don't have it, it will stay missing locally and use Lazy Load via API
-                    }
-                }
-
-                // Bulk Save
-                if (entriesToSave.length > 0) await this.db.bulkPut('entries', entriesToSave);
-                if (imagesToSave.length > 0) await this.db.bulkPut('images', imagesToSave);
-
-                this.data = entriesToSave;
-                this.renderList();
-                this.showToast('✅ Data tersinkronisasi');
             }
+
+            // B. Prepare Updates (Cloud items to Local)
+            for (const item of cloudEntries) {
+                const entryData = {
+                    id: String(item.id),
+                    date: item.date,
+                    title: item.title,
+                    type: item.type,
+                    amount: parseFloat(item.amount) || 0,
+                    reason: item.reason,
+                    highlight: !!item.highlight,
+                    pinned: !!item.pinned,
+                    hasImage: !!item.hasImage,
+                    timestamp: item.timestamp,
+                    last_synced: item.last_synced
+                };
+                toUpdate.push(entryData);
+            }
+
+            // 4. Execution
+            if (toDelete.length > 0) {
+                console.log('Sync: Deleting zombies', toDelete.length);
+                // Parallel delete
+                await Promise.all(toDelete.map(id => this.db.deleteFull(id)));
+            }
+
+            if (toUpdate.length > 0) {
+                console.log('Sync: Updating entries', toUpdate.length);
+                await this.db.bulkPut('entries', toUpdate);
+            }
+
+            // 5. Image State Consistency
+            // If cloud says 'hasImage: false', ensure we don't have a lingering image blob
+            const imageCleanups = [];
+            for (const item of cloudEntries) {
+                if (!item.hasImage) {
+                    // Start check/delete in background (fire and forget acceptable or await)
+                    imageCleanups.push(this.db.deleteImage(String(item.id)));
+                }
+            }
+            if (imageCleanups.length > 0) await Promise.all(imageCleanups);
+
+            // 6. Update Runtime State
+            this.data = toUpdate;
+            this.renderList();
+            this.showToast('✅ Data termutakhir (Cloud Sync)');
+
         } catch (e) {
             console.error('Sync error:', e);
+            if (e.message.includes('401') || e.message.includes('Unauthorized')) {
+                // Token expired/invalid, let Auth handle it or just stop
+                return;
+            }
             this.showToast('⚠️ Gagal sinkronisasi: ' + (e.message || 'Koneksi bermasalah'));
         }
     },

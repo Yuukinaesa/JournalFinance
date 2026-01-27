@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
+    token_version INTEGER DEFAULT 1,
     created_at INTEGER DEFAULT (strftime('%s', 'now'))
 );
 
