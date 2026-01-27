@@ -20,6 +20,7 @@
   "author": "Arfan Hidayat Priyantono",
   "license": "UNLICENSED",
   "devDependencies": {
-    "sharp": "^0.34.5"
+    "sharp": "^0.34.5",
+    "wrangler": "^4.61.0"
   }
 }

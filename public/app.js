@@ -742,6 +742,32 @@ window.app = {
         bind('replaceImgBtn', 'click', () => document.getElementById('entryImage').click());
         bind('removeImageBtn', 'click', () => this.clearImage());
 
+        // Drag & Drop Handling (CSP Compliant)
+        const dropZone = document.getElementById('imageDropZone');
+        if (dropZone) {
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.style.borderColor = 'var(--primary)';
+                dropZone.style.backgroundColor = 'var(--bg-card-hover)';
+            });
+            dropZone.addEventListener('dragleave', (e) => {
+                e.preventDefault();
+                dropZone.style.borderColor = 'var(--border-color)';
+                dropZone.style.backgroundColor = 'var(--bg-card)';
+            });
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.style.borderColor = 'var(--border-color)';
+                dropZone.style.backgroundColor = 'var(--bg-card)';
+
+                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    const input = document.getElementById('entryImage');
+                    input.files = e.dataTransfer.files;
+                    this.handleImagePreview(input);
+                }
+            });
+        }
+
         // Delete Modal
         bind('closeDeleteModalBtn', 'click', () => this.closeDeleteModal());
         bind('cancelDeleteBtn', 'click', () => this.closeDeleteModal());

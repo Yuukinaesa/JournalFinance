@@ -1,0 +1,23 @@
+# WRANGLER IGNORE
+# Daftar file yang DILARANG di-upload sebagai aset publik
+# Ini adalah lapisan keamanan kedua.
+
+.git/
+.github/
+.vscode/
+node_modules/
+backend/
+migrations/
+screenshots/
+
+# Config Files
+wrangler.toml
+package.json
+package-lock.json
+README.md
+.gitignore
+
+# Scripts di root
+generate-icons.js
+
+# Pastikan hanya folder 'public' yang diizinkan (secara default wrangler.toml sudah membatasi, tapi ini double-check)
