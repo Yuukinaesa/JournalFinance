@@ -5,6 +5,22 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Daftar Akun - JournalFinance</title>
+    <meta name="description" content="Buat akun JournalFinance untuk mulai mencatat perjalanan finansialmu.">
+
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#6366f1">
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f172a">
+    <link rel="manifest" href="./manifest.json">
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="./favicon.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="./favicon.png">
+
+    <!-- Apple/iOS -->
+    <link rel="apple-touch-icon" href="./icons/icon-192x192.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="JournalFinance">
 
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -142,6 +158,7 @@
             font-weight: 700;
             background: var(--primary-gradient);
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
             margin-bottom: 8px;
         }
@@ -334,6 +351,12 @@
             </div>
 
             <div class="form-group">
+                <label class="form-label" for="username">Username (Opsional)</label>
+                <input type="text" id="username" class="form-input" placeholder="Isi jika ingin login via username"
+                    pattern="[a-zA-Z0-9_]{3,30}" title="3-30 karakter, huruf, angka, underscore">
+            </div>
+
+            <div class="form-group">
                 <label class="form-label" for="password">Password</label>
                 <input type="password" id="password" class="form-input" placeholder="Minimal 8 karakter" minlength="8"
                     required>
@@ -370,7 +393,9 @@
             e.preventDefault();
 
             const email = document.getElementById('email').value;
+            const username = document.getElementById('username').value; // Optional
             const pass = document.getElementById('password').value;
+
             if (pass.length < 8) {
                 showToast('Password minimal 8 karakter', 'error');
                 return;
@@ -383,7 +408,7 @@
             btn.disabled = true;
 
             try {
-                await Auth.register(email, pass);
+                await Auth.register(email, pass, username);
                 showToast('Registrasi berhasil! Silakan login.', 'success');
                 setTimeout(() => {
                     window.location.href = 'login.html';

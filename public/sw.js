@@ -2,13 +2,13 @@
  * ======================================================================
  * SERVICE WORKER - PROFESSIONAL PWA IMPLEMENTATION
  * ======================================================================
- * Version: 2.0.0
+ * Version: 2.1.0
  * Strategy: Network First, Cache Fallback (for dynamic content)
  * Cache Strategy: Stale-While-Revalidate (for static assets)
  * ======================================================================
  */
 
-const CACHE_VERSION = 'journal-finance-v2.0.6-sync-fix';
+const CACHE_VERSION = 'journal-finance-v2.1.0';
 const CACHE_NAME = `${CACHE_VERSION}-static`;
 const CACHE_DYNAMIC = `${CACHE_VERSION}-dynamic`;
 const CACHE_IMAGES = `${CACHE_VERSION}-images`;
@@ -20,7 +20,15 @@ const STATIC_ASSETS = [
     './manifest.json',
     './OptimizedDB.js',
     './app.js',
+    './auth.js',
+    './favicon.png',
+    './icons/icon-72x72.png',
+    './icons/icon-96x96.png',
+    './icons/icon-128x128.png',
+    './icons/icon-144x144.png',
+    './icons/icon-152x152.png',
     './icons/icon-192x192.png',
+    './icons/icon-384x384.png',
     './icons/icon-512x512.png',
     'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@500;700;800&display=swap'
 ];

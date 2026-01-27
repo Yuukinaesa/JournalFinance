@@ -1,0 +1,25 @@
+{
+  "name": "journal-finance-app",
+  "version": "2.2.0",
+  "description": "Enterprise Grade Financial Journal PWA with Cloud Sync",
+  "private": true,
+  "scripts": {
+    "start": "npx wrangler dev",
+    "deploy": "npx wrangler deploy",
+    "test": "node --check backend/worker.js public/app.js public/auth.js",
+    "lint": "echo 'No linter configured yet'",
+    "generate-icons": "node generate-icons.js"
+  },
+  "keywords": [
+    "finance",
+    "journal",
+    "pwa",
+    "cloudflare-worker",
+    "d1"
+  ],
+  "author": "Arfan Hidayat Priyantono",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "sharp": "^0.34.5"
+  }
+}

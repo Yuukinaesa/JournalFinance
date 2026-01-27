@@ -9,6 +9,19 @@ export default {
         const path = url.pathname;
         const method = request.method;
 
+        // CORS Headers - MUST be defined FIRST before any usage
+        const corsHeaders = {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, DELETE',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+            'X-Content-Type-Options': 'nosniff',
+            'X-Frame-Options': 'DENY'
+        };
+
+        if (method === 'OPTIONS') {
+            return new Response(null, { headers: corsHeaders });
+        }
+
         // --- SECURITY: RATE LIMITING (Memory-based for Hot Isolate) ---
         // 100 requests per minute per IP
         const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
@@ -35,17 +48,6 @@ export default {
             });
         }
         // -----------------------------------------------------------
-
-        // CORS Headers
-        const corsHeaders = {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, DELETE',
-            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        };
-
-        if (method === 'OPTIONS') {
-            return new Response(null, { headers: corsHeaders });
-        }
 
         try {
             // 1. API ROUTES
@@ -176,11 +178,46 @@ export default {
     // --- AUTH LOGIC (Same as before) ---
 
     async register(request, env, headers) {
-        const { email, password } = await request.json();
-        if (!email || !password) throw new Error('Email and Password required');
+        const { email, username, password } = await request.json();
+
+        // INPUT VALIDATION - SECURITY CRITICAL
+        if (!email || !password) {
+            return new Response(JSON.stringify({ error: 'Email and Password required' }), { status: 400, headers });
+        }
+
+        // Email format validation
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email) || email.length > 255) {
+            return new Response(JSON.stringify({ error: 'Invalid email format' }), { status: 400, headers });
+        }
+
+        // Username validation (Optional)
+        if (username) {
+            const usernameRegex = /^[a-zA-Z0-9_]{3,30}$/;
+            if (!usernameRegex.test(username)) {
+                return new Response(JSON.stringify({ error: 'Username must be 3-30 chars, alphanumeric only' }), { status: 400, headers });
+            }
+        }
+
+        // Password strength validation
+        if (password.length < 8 || password.length > 128) {
+            return new Response(JSON.stringify({ error: 'Password must be 8-128 characters' }), { status: 400, headers });
+        }
+
         const passwordHash = await this.hashPassword(password);
         try {
-            const result = await env.DB.prepare('INSERT INTO users (email, password_hash) VALUES (?, ?)').bind(email, passwordHash).run();
+            // Check if username already exists if provided
+            if (username) {
+                const existingUser = await env.DB.prepare('SELECT id FROM users WHERE username = ?').bind(username).first();
+                if (existingUser) {
+                    return new Response(JSON.stringify({ error: 'Username already taken' }), { status: 400, headers });
+                }
+            }
+
+            const result = await env.DB.prepare('INSERT INTO users (email, username, password_hash) VALUES (?, ?, ?)')
+                .bind(email.toLowerCase().trim(), username || null, passwordHash)
+                .run();
+
             return new Response(JSON.stringify({ success: true, userId: result.meta.last_row_id }), { headers });
         } catch (e) {
             if (e.message.includes('UNIQUE')) return new Response(JSON.stringify({ error: 'Email already exists' }), { status: 400, headers });
@@ -189,14 +226,36 @@ export default {
     },
 
     async login(request, env, headers) {
-        const { email, password } = await request.json();
-        const user = await env.DB.prepare('SELECT * FROM users WHERE email = ?').bind(email).first();
-        if (!user) return new Response(JSON.stringify({ error: 'Invalid credentials' }), { status: 401, headers });
-        const isValid = await this.verifyPassword(password, user.password_hash);
-        if (!isValid) return new Response(JSON.stringify({ error: 'Invalid credentials' }), { status: 401, headers });
+        const { email, password } = await request.json(); // 'email' field can now contain email OR username
 
-        // USE FALLBACK SECRET IF ENV IS MISSING (For Quick Start / Dev)
-        // ideally set this in Cloudflare Dashboard -> Settings -> Variables
+        // INPUT VALIDATION
+        if (!email || !password) {
+            return new Response(JSON.stringify({ error: 'Invalid credentials' }), { status: 401, headers });
+        }
+
+        const identifier = email.trim(); // Can be email or username
+        let user;
+
+        if (identifier.includes('@')) {
+            // It's an email
+            user = await env.DB.prepare('SELECT * FROM users WHERE email = ?').bind(identifier.toLowerCase()).first();
+        } else {
+            // It's a username (case-sensitive or insensitive? Let's go with exact match or lowercase if we enforced it. 
+            // Better to assume username is stored exactly as is, but let's query carefully.
+            // For now, let's assume exact match for username.)
+            user = await env.DB.prepare('SELECT * FROM users WHERE username = ?').bind(identifier).first();
+        }
+
+        // SECURITY: Constant-time comparison to prevent timing attacks
+        // Always hash password even if user not found to prevent timing-based enumeration
+        const dummyHash = '0'.repeat(64); // Dummy hash for timing safety
+        const hashToCompare = user ? user.password_hash : dummyHash;
+        const isValid = await this.verifyPassword(password, hashToCompare);
+
+        if (!user || !isValid) {
+            return new Response(JSON.stringify({ error: 'Invalid credentials' }), { status: 401, headers });
+        }
+
         // ENTERPRISE SECURITY: Force use of Environment Variable
         if (!env.JWT_SECRET) {
             throw new Error('CRITICAL CONFIG ERROR: JWT_SECRET env var is missing');
@@ -206,8 +265,8 @@ export default {
         // Get current token version, default to 1 if null
         const tokenVersion = user.token_version || 1;
 
-        const token = await this.signToken({ id: user.id, email: user.email, v: tokenVersion }, secret);
-        return new Response(JSON.stringify({ success: true, token, user: { id: user.id, email: user.email } }), { headers });
+        const token = await this.signToken({ id: user.id, email: user.email, username: user.username, v: tokenVersion }, secret);
+        return new Response(JSON.stringify({ success: true, token, user: { id: user.id, email: user.email, username: user.username } }), { headers });
     },
 
 

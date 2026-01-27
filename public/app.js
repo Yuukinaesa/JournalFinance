@@ -10,15 +10,51 @@
  * ============================================================
  */
 
+// ============================================================
+// PWA INSTALL PROMPT - Must be registered EARLY before DOMContentLoaded
+// ============================================================
+let deferredInstallPrompt = null;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    console.log('✅ PWA Install Event captured early!');
+
+    // Show install button if DOM is ready
+    const btn = document.getElementById('installBtn');
+    if (btn) {
+        btn.style.display = 'flex';
+    } else {
+        // DOM not ready yet, wait for it
+        document.addEventListener('DOMContentLoaded', () => {
+            const installBtn = document.getElementById('installBtn');
+            if (installBtn) installBtn.style.display = 'flex';
+        });
+    }
+});
+
+// Detect iOS for manual install instructions
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+
+if (isIOS && !isStandalone) {
+    document.addEventListener('DOMContentLoaded', () => {
+        const btn = document.getElementById('installBtn');
+        if (btn) {
+            btn.style.display = 'flex';
+            btn.title = 'Tap to see iOS install instructions';
+        }
+    });
+}
+
 window.app = {
-    data: [],
     STORAGE_KEY: 'journalFinanceData',
-    deleteTargetId: null,
     deleteTargetId: null,
     closeTimeout: null,
     db: new OptimizedJournalDB(),
     data: [],
     worker: null,
+    deferredPrompt: null, // Will be set from global
 
     async init() {
         try {
@@ -488,30 +524,7 @@ window.app = {
 
     // --- Reset ---
 
-    async confirmReset() {
-        const input = document.getElementById('resetConfirmInput');
-        if (input.value.toLowerCase() !== 'yes') return;
-
-        this.closeResetModal();
-        this.showProgress(0, 'Menghapus Semua Data', 'Mohon tunggu...');
-
-        if (this.worker) {
-            this.worker.postMessage({ action: 'reset' });
-        } else {
-            try {
-                await this.db.clearAll();
-                // Also clear backup cache
-                await this.db.deleteRestorePoint();
-                localStorage.removeItem(this.STORAGE_KEY);
-                localStorage.removeItem('APP_STATUS');
-                this.handleSuccess('reset');
-            } catch (e) {
-                console.error('Reset error:', e);
-                this.hideProgress();
-                this.showToast('❌ Gagal reset storage');
-            }
-        }
-    },
+    // confirmReset is defined later in the file at line ~1038 with proper cloud reset logic
 
     async migrateFromLocalStorage() {
         const stored = localStorage.getItem(this.STORAGE_KEY);
@@ -591,14 +604,8 @@ window.app = {
                 })
                 .catch(err => console.error('❌ SW registration failed:', err));
 
-            // PWA Install Prompt
-            window.addEventListener('beforeinstallprompt', (e) => {
-                e.preventDefault();
-                this.deferredPrompt = e;
-                console.log('✅ PWA Install Event captured. Custom Install Button activated.');
-                const btn = document.getElementById('installBtn');
-                if (btn) btn.style.display = 'flex';
-            });
+            // PWA Install Prompt handled globally at top of file
+            // window.addEventListener('beforeinstallprompt', ...)
         }
     },
 
@@ -824,10 +831,26 @@ window.app = {
     },
 
     async installApp() {
-        if (!this.deferredPrompt) return;
-        this.deferredPrompt.prompt();
-        const { outcome } = await this.deferredPrompt.userChoice;
+        // iOS Handling
+        // Detect either standard iOS or iPadOS (often reports as Macintosh with maxTouchPoints > 1)
+        const isIOS = (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.userAgent.includes("Mac") && "ontouchend" in document)) && !window.MSStream;
+
+        if (isIOS) {
+            alert('Untuk menginstall di iOS:\n1. Tap tombol Share (ikon kotak dengan panah ke atas)\n2. Pilih "Add to Home Screen"');
+            return;
+        }
+
+        const promptEvent = deferredInstallPrompt || this.deferredPrompt;
+        if (!promptEvent) {
+            console.log('No install prompt available');
+            // Optionally show check for existing installation instructions
+            return;
+        }
+
+        promptEvent.prompt();
+        const { outcome } = await promptEvent.userChoice;
         if (outcome === 'accepted') {
+            deferredInstallPrompt = null;
             this.deferredPrompt = null;
             document.getElementById('installBtn').style.display = 'none';
         }
