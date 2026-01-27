@@ -8,7 +8,7 @@ const path = require('path');
 const fs = require('fs');
 
 // Source image path - the newly generated icon
-const SOURCE_IMAGE = 'C:/Users/arfan/.gemini/antigravity/brain/aa669053-a563-4f7f-bbd2-958a7c425761/journalfinance_icon_1769540332534.png';
+const SOURCE_IMAGE = 'C:/Users/arfan/.gemini/antigravity/brain/f2980b91-4635-4dd9-95a6-fbb3bc5b79d6/journal_finance_logo_1769544134616.png';
 const OUTPUT_DIR = './public/icons';
 
 // All required PWA icon sizes
