@@ -41,19 +41,17 @@
             --error: #ef4444;
         }
 
-        @media (prefers-color-scheme: dark) {
-            :root {
-                --bg-body: #0f172a;
-                --text-main: #f8fafc;
-                --text-muted: #94a3b8;
+        html.dark {
+            --bg-body: #0f172a;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
 
-                --bg-card: rgba(30, 41, 59, 0.6);
-                --bg-glass: rgba(15, 23, 42, 0.8);
-                --border-glass: rgba(255, 255, 255, 0.1);
+            --bg-card: rgba(30, 41, 59, 0.6);
+            --bg-glass: rgba(15, 23, 42, 0.8);
+            --border-glass: rgba(255, 255, 255, 0.1);
 
-                --input-bg: rgba(2, 6, 23, 0.4);
-                --border-color: rgba(255, 255, 255, 0.1);
-            }
+            --input-bg: rgba(2, 6, 23, 0.4);
+            --border-color: rgba(255, 255, 255, 0.1);
         }
 
         * {
@@ -77,6 +75,7 @@
         }
 
         .login-card {
+            position: relative;
             background-color: var(--bg-card);
             backdrop-filter: blur(24px);
             -webkit-backdrop-filter: blur(24px);
@@ -87,6 +86,49 @@
             max-width: 440px;
             box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(255, 255, 255, 0.05);
             animation: slideUp 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+
+        .theme-toggle {
+            position: absolute;
+            top: 24px;
+            right: 24px;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            z-index: 10;
+        }
+
+        .theme-toggle:hover {
+            background-color: var(--bg-glass);
+            color: var(--primary);
+        }
+
+        .theme-toggle svg {
+            width: 24px;
+            height: 24px;
+        }
+
+        .sun-icon {
+            display: none;
+        }
+
+        .moon-icon {
+            display: block;
+        }
+
+        html.dark .sun-icon {
+            display: block;
+        }
+
+        html.dark .moon-icon {
+            display: none;
         }
 
         .header {
@@ -229,12 +271,10 @@
             max-width: 90%;
         }
 
-        @media (prefers-color-scheme: dark) {
-            .toast {
-                background: rgba(30, 41, 59, 0.9);
-                color: #f8fafc;
-                border-color: rgba(255, 255, 255, 0.1);
-            }
+        html.dark .toast {
+            background: rgba(30, 41, 59, 0.9);
+            color: #f8fafc;
+            border-color: rgba(255, 255, 255, 0.1);
         }
 
         .toast.show {
@@ -262,6 +302,26 @@
 
 <body>
     <div class="login-card">
+        <button id="themeToggle" class="theme-toggle" aria-label="Toggle Theme">
+            <!-- Sun Icon (for Dark Mode) -->
+            <svg class="sun-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="5"></circle>
+                <line x1="12" y1="1" x2="12" y2="3"></line>
+                <line x1="12" y1="21" x2="12" y2="23"></line>
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                <line x1="1" y1="12" x2="3" y2="12"></line>
+                <line x1="21" y1="12" x2="23" y2="12"></line>
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+            </svg>
+            <!-- Moon Icon (for Light Mode) -->
+            <svg class="moon-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+            </svg>
+        </button>
         <div class="header">
             <h1>Buat Akun Baru</h1>
             <p class="subtitle">Mulai catat perjalanan finansialmu.</p>
@@ -353,6 +413,32 @@
             toast.classList.add('show');
             setTimeout(() => { toast.classList.remove('show'); }, 3000);
         }
+
+        // Theme Logic
+        const themeToggle = document.getElementById('themeToggle');
+        const html = document.documentElement;
+
+        function setTheme(isDark) {
+            if (isDark) {
+                html.classList.add('dark');
+                localStorage.setItem('theme', 'dark');
+            } else {
+                html.classList.remove('dark');
+                localStorage.setItem('theme', 'light');
+            }
+        }
+
+        // Init
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            setTheme(true);
+        } else {
+            setTheme(false);
+        }
+
+        themeToggle.addEventListener('click', () => {
+            setTheme(!html.classList.contains('dark'));
+        });
     </script>
 </body>
 

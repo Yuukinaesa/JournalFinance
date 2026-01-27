@@ -50,6 +50,7 @@ window.app = {
                     userDiv.innerHTML = `
                         <div style="width: 8px; height: 8px; background: #10b981; border-radius: 50%;"></div>
                         <span>${user.email}</span>
+                        <a href="#" id="btnLogoutAll" style="color: var(--text-muted); margin-left: 12px; text-decoration: none; font-size: 0.8rem;" title="Keluar semua perangkat">Keluar Semua</a>
                         <a href="#" id="btnLogout" style="color: #ef4444; margin-left: 8px; text-decoration: none; font-weight: 600;">Keluar</a>
                      `;
                     // Append to body or header depending on layout. Body is safer for absolute positioning.
@@ -59,6 +60,15 @@ window.app = {
                     document.getElementById('btnLogout').addEventListener('click', (e) => {
                         e.preventDefault();
                         this.logout();
+                    });
+
+                    document.getElementById('btnLogoutAll').addEventListener('click', async (e) => {
+                        e.preventDefault();
+                        if (confirm('Yakin ingin keluar dari SEMUA perangkat? Anda harus login ulang di semua device.')) {
+                            this.showToast('Memproses logout global...');
+                            await Auth.logoutAll();
+                            window.location.reload();
+                        }
                     });
                 }
             }

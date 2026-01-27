@@ -53,6 +53,14 @@ export default {
                 // Auth Routes
                 if (path === '/api/auth/register' && method === 'POST') return await this.register(request, env, corsHeaders);
                 if (path === '/api/auth/login' && method === 'POST') return await this.login(request, env, corsHeaders);
+                if (path === '/api/auth/logout-all' && method === 'POST') {
+                    const user = await this.verifyAuth(request, env);
+                    if (!user) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: corsHeaders });
+
+                    // Increment token version
+                    await env.DB.prepare('UPDATE users SET token_version = IFNULL(token_version, 1) + 1 WHERE id = ?').bind(user.id).run();
+                    return new Response(JSON.stringify({ success: true, message: 'All sessions invalidated' }), { headers: corsHeaders });
+                }
 
                 // Protected Data Routes
                 if (path.startsWith('/api/data') || path.startsWith('/api/entries')) {
@@ -195,7 +203,10 @@ export default {
         }
         const secret = env.JWT_SECRET;
 
-        const token = await this.signToken({ id: user.id, email: user.email }, secret);
+        // Get current token version, default to 1 if null
+        const tokenVersion = user.token_version || 1;
+
+        const token = await this.signToken({ id: user.id, email: user.email, v: tokenVersion }, secret);
         return new Response(JSON.stringify({ success: true, token, user: { id: user.id, email: user.email } }), { headers });
     },
 
@@ -264,13 +275,35 @@ export default {
         if (!auth || !auth.startsWith('Bearer ')) return null;
         const token = auth.split(' ')[1];
 
-        // ENTERPRISE SECURITY: Force use of Environment Variable
         if (!env.JWT_SECRET) {
             throw new Error('CRITICAL CONFIG ERROR: JWT_SECRET env var is missing');
         }
         const secret = env.JWT_SECRET;
 
-        try { return await this.verifyToken(token, secret); } catch (e) { return null; }
+        try {
+            const payload = await this.verifyToken(token, secret);
+
+            // Check Token Version against DB
+            const user = await env.DB.prepare('SELECT id, email, token_version FROM users WHERE id = ?').bind(payload.id).first();
+            if (!user) return null;
+
+            const currentVersion = user.token_version || 1;
+            // Backward compatibility: If payload has no version ('v'), accept if DB is 1 or null.
+            // But if DB > 1, reject legacy tokens.
+            const payloadVersion = payload.v || 0;
+
+            // Strict check: if payload has version, it must match.
+            // If payload has NO version (old token), it is valid ONLY if DB version is default (1 or null)
+            if (payload.v) {
+                if (payload.v !== currentVersion) return null; // Invalidated
+            } else {
+                // Legacy token. If user has logged out all (version > 1), this should fail.
+                // Assuming starting version is 1.
+                if (currentVersion > 1) return null;
+            }
+
+            return user;
+        } catch (e) { return null; }
     },
 
     async hashPassword(password) {
@@ -283,7 +316,7 @@ export default {
 
     async signToken(payload, secret) {
         const header = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" }));
-        const body = btoa(JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + 86400 }));
+        const body = btoa(JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + 7776000 }));
         const unsigned = `${header}.${body}`;
         const signature = await this.hmacSha256(unsigned, secret);
         return `${unsigned}.${signature}`;
