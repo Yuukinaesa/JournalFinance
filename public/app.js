@@ -76,69 +76,34 @@ window.app = {
             }
 
             // SHOW USER INFO
-            const user = Auth.getUser();
-            if (user && user.email) {
-                const header = document.querySelector('header');
-                const existingUserDisplay = document.getElementById('userDisplay');
-                if (!existingUserDisplay) {
-                    const userDiv = document.createElement('div');
-                    userDiv.id = 'userDisplay';
-                    userDiv.style.cssText = 'position: absolute; top: 1rem; right: 1rem; font-size: 0.85rem; color: var(--text-muted); background: var(--bg-card); padding: 4px 12px; border-radius: 20px; border: 1px solid var(--border-color); display: flex; align-items: center; gap: 8px; z-index: 50;';
-                    userDiv.innerHTML = `
-                        <div style="width: 8px; height: 8px; background: #10b981; border-radius: 50%;"></div>
-                        <span>${user.email}</span>
-                        <a href="#" id="btnLogoutAll" style="color: var(--text-muted); margin-left: 12px; text-decoration: none; font-size: 0.8rem;" title="Keluar semua perangkat">Keluar Semua</a>
-                        <a href="#" id="btnLogout" style="color: #ef4444; margin-left: 8px; text-decoration: none; font-weight: 600;">Keluar</a>
-                     `;
-                    // Append to body or header depending on layout. Body is safer for absolute positioning.
-                    document.body.appendChild(userDiv);
+            this.renderHeaderUser();
 
-                    // Attach listener dynamically to avoid CSP inline-script violation
-                    document.getElementById('btnLogout').addEventListener('click', (e) => {
-                        e.preventDefault();
-                        this.logout();
-                    });
-
-                    document.getElementById('btnLogoutAll').addEventListener('click', async (e) => {
-                        e.preventDefault();
-
-                        const confirmed = await this.showConfirm(
-                            'Log Out All Devices',
-                            'Yakin ingin keluar dari SEMUA perangkat? Anda harus login ulang di semua device.'
-                        );
-
-                        if (confirmed) {
-                            this.showToast('Memproses logout global...');
-                            try {
-                                const result = await Auth.logoutAll();
-                                if (result.success) {
-                                    await this.showAlert('Sukses', 'Semua sesi perangkat lain telah diakhiri.');
-                                } else {
-                                    throw new Error(result.error || 'Unknown error');
-                                }
-                            } catch (err) {
-                                await this.showAlert('Gagal', 'Logout global sistem gagal: ' + err.message + '\n\nAnda tetap akan logout dari perangkat ini.');
-                            } finally {
-                                this.logout();
-
-                                window.onbeforeunload = null;
-                                window.location.reload();
-                            }
-                        }
-                    });
-                }
-            }
-
-
-
-            // --- Cloud Init ---
-            this.showProgress(10, 'Memuat Data', 'Mengambil dari server...');
+            // --- Cloud Init (with Offline Fallback) ---
+            this.showProgress(10, 'Memuat Data', 'Menghubungkan ke server...');
 
             try {
+                // Try Cloud First (Authority)
                 this.data = await Auth.fetchEntries();
+                // Update Local Cache immediately
+                await this.db.clearAll();
+                await this.db.bulkPut('entries', this.data);
+                console.log('✅ Cloud Data Loaded & Cached');
             } catch (e) {
-                console.error('Cloud fetch failed:', e);
-                this.showToast('⚠️ Gagal memuat data cloud');
+                console.warn('⚠️ Cloud fetch failed, checking local cache...', e);
+                // Fallback to Local DB
+                try {
+                    const localData = await this.db.getAllEntries();
+                    if (localData && localData.length > 0) {
+                        this.data = localData;
+                        this.showToast('⚠️ Offline Mode: Data lokal dimuat');
+                    } else {
+                        throw new Error('Tidak ada data lokal & Gagal koneksi ke server.');
+                    }
+                } catch (dbErr) {
+                    console.error('Critical Init Error:', dbErr);
+                    this.showToast('⚠️ Gagal memuat data (Check Connection)');
+                    this.data = [];
+                }
             } finally {
                 this.hideProgress();
             }
@@ -147,6 +112,9 @@ window.app = {
             this.initTheme();
             this.initEventListeners();
             this.renderList();
+
+            // Background Sync (Every 30 seconds) - Near Real-time
+            setInterval(() => this.performSync(), 30000);
 
             // RESUME CHECK - Keeping for File Restore Only
             if (localStorage.getItem('APP_STATUS') === 'RESTORING') {
@@ -163,29 +131,56 @@ window.app = {
         }
     },
 
-    async performCloudSync() {
-        try {
-            const serverEntries = await Auth.syncWithCloud(this.data);
-            if (serverEntries) {
-                // Determine if we need to update local
-                // For simplicity: If server has more entries, or different count, we overwrite local
-                // A true "Sync" requires 2-way merge logic by timestamp.
-                // For now: Server Authority Model (if server has data, use it)
+    renderHeaderUser() {
+        const user = Auth.getUser();
+        if (user && user.email) {
+            const existingUserDisplay = document.getElementById('userDisplay');
+            if (!existingUserDisplay) {
+                const userDiv = document.createElement('div');
+                userDiv.id = 'userDisplay';
+                userDiv.style.cssText = 'position: absolute; top: 1rem; right: 1rem; font-size: 0.85rem; color: var(--text-muted); background: var(--bg-card); padding: 4px 12px; border-radius: 20px; border: 1px solid var(--border-color); display: flex; align-items: center; gap: 8px; z-index: 50;';
+                userDiv.innerHTML = `
+                        <div style="width: 8px; height: 8px; background: #10b981; border-radius: 50%;"></div>
+                        <span style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${user.username || user.email}</span>
+                        <a href="#" id="btnLogoutAll" style="color: var(--text-muted); margin-left: 12px; text-decoration: none; font-size: 0.8rem;" title="Keluar semua perangkat">Keluar Semua</a>
+                        <a href="#" id="btnLogout" style="color: #ef4444; margin-left: 8px; text-decoration: none; font-weight: 600;">Keluar</a>
+                     `;
+                document.body.appendChild(userDiv);
 
-                if (serverEntries.length > 0 && JSON.stringify(serverEntries) !== JSON.stringify(this.data)) {
-                    this.data = serverEntries;
-                    // Persist to local IndexedDB
-                    await this.db.clearAll();
-                    await this.db.bulkPut('entries', this.data);
-                    // Images are not yet synced to cloud in this version (only text)
-                    this.renderList();
-                    console.log('✅ Cloud Sync Complete');
-                }
+                document.getElementById('btnLogout').addEventListener('click', (e) => {
+                    e.preventDefault();
+                    this.logout();
+                });
+
+                document.getElementById('btnLogoutAll').addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    const confirmed = await this.showConfirm(
+                        'Log Out All Devices',
+                        'Yakin ingin keluar dari SEMUA perangkat? Anda harus login ulang di semua device.'
+                    );
+                    if (confirmed) {
+                        this.showToast('Memproses logout global...');
+                        try {
+                            const result = await Auth.logoutAll();
+                            if (result.success) {
+                                await this.showAlert('Sukses', 'Semua sesi perangkat lain telah diakhiri.');
+                            } else {
+                                throw new Error(result.error || 'Unknown error');
+                            }
+                        } catch (err) {
+                            await this.showAlert('Gagal', 'Logout global sistem gagal: ' + err.message + '\n\nAnda tetap akan logout dari perangkat ini.');
+                        } finally {
+                            this.logout();
+                            window.onbeforeunload = null;
+                            window.location.reload();
+                        }
+                    }
+                });
             }
-        } catch (e) {
-            console.warn('Background sync failed:', e);
         }
     },
+
+
 
     logout() {
         this.initiateLogout();
