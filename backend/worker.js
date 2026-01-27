@@ -284,7 +284,8 @@ export default {
             const payload = await this.verifyToken(token, secret);
 
             // Check Token Version against DB
-            const user = await env.DB.prepare('SELECT id, email, token_version FROM users WHERE id = ?').bind(payload.id).first();
+            // Use SELECT * to avoid crash if token_version column is missing (migration pending)
+            const user = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(payload.id).first();
             if (!user) return null;
 
             const currentVersion = user.token_version || 1;

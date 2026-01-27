@@ -64,10 +64,27 @@ window.app = {
 
                     document.getElementById('btnLogoutAll').addEventListener('click', async (e) => {
                         e.preventDefault();
-                        if (confirm('Yakin ingin keluar dari SEMUA perangkat? Anda harus login ulang di semua device.')) {
+
+                        const confirmed = await this.showConfirm(
+                            'Log Out All Devices',
+                            'Yakin ingin keluar dari SEMUA perangkat? Anda harus login ulang di semua device.'
+                        );
+
+                        if (confirmed) {
                             this.showToast('Memproses logout global...');
-                            await Auth.logoutAll();
-                            window.location.reload();
+                            try {
+                                const result = await Auth.logoutAll();
+                                if (result.success) {
+                                    await this.showAlert('Sukses', 'Semua sesi perangkat lain telah diakhiri.');
+                                } else {
+                                    throw new Error(result.error || 'Unknown error');
+                                }
+                            } catch (err) {
+                                await this.showAlert('Gagal', 'Logout global sistem gagal: ' + err.message + '\n\nAnda tetap akan logout dari perangkat ini.');
+                            } finally {
+                                this.logout();
+                                window.location.reload();
+                            }
                         }
                     });
                 }
@@ -152,7 +169,7 @@ window.app = {
             if (type === 'error') {
                 this.hideProgress();
                 console.error('Worker Error:', error);
-                alert('Terjadi kesalahan: ' + error);
+                this.showAlert('System Error', 'Terjadi kesalahan: ' + error);
                 if (operation === 'restore') localStorage.removeItem('APP_STATUS');
             }
         };
@@ -332,7 +349,8 @@ window.app = {
         const file = input.files[0];
         if (!file) return;
 
-        if (!confirm('PERINGATAN: Restore akan MENGHAPUS semua data saat ini. Lanjut?')) {
+        const confirmed = await this.showConfirm('Restore Data', 'PERINGATAN: Restore akan MENGHAPUS semua data saat ini. Lanjut?');
+        if (!confirmed) {
             input.value = '';
             return;
         }
@@ -351,7 +369,7 @@ window.app = {
                     await this.processRestoreMain(json);
                 } catch (err) {
                     this.hideProgress();
-                    alert('File corrupt: ' + err.message);
+                    this.showAlert('File Error', 'File corrupt: ' + err.message);
                     localStorage.removeItem('APP_STATUS');
                 }
             };
@@ -362,7 +380,8 @@ window.app = {
     },
 
     async resumeRestore() {
-        if (!confirm('Pemberitahuan: Sistem mendeteksi proses restore yang belum selesai. Lanjutkan sekarang?')) {
+        const confirmed = await this.showConfirm('Resume Restore', 'Pemberitahuan: Sistem mendeteksi proses restore yang belum selesai. Lanjutkan sekarang?');
+        if (!confirmed) {
             localStorage.removeItem('APP_STATUS');
             await this.db.deleteRestorePoint();
             return;
@@ -379,7 +398,7 @@ window.app = {
                 if (!json) throw new Error('Backup cache missing');
                 await this.processRestoreMain(json);
             } catch (e) {
-                alert('Gagal resume: ' + e.message);
+                this.showAlert('Resume Failed', 'Gagal resume: ' + e.message);
             }
         }
     },
@@ -459,7 +478,7 @@ window.app = {
         } catch (e) {
             console.error(e);
             this.hideProgress();
-            alert('Gagal Restore: ' + e.message);
+            this.showAlert('Restore Failed', 'Gagal Restore: ' + e.message);
             localStorage.removeItem('APP_STATUS');
         }
     },
@@ -1356,6 +1375,49 @@ window.app = {
         t.innerText = msg;
         t.className = 'toast show';
         setTimeout(() => t.className = 'toast', 3000);
+    },
+
+    // --- GENERIC MODALS ---
+    showAlert(title, message) {
+        return new Promise((resolve) => {
+            const el = document.getElementById('alertModal');
+            document.getElementById('alertTitle').innerText = title;
+            document.getElementById('alertMessage').innerText = message;
+
+            const btn = document.getElementById('alertOkBtn');
+            const handler = () => {
+                el.classList.remove('open');
+                btn.removeEventListener('click', handler);
+                resolve();
+            };
+            btn.addEventListener('click', handler);
+            el.classList.add('open');
+        });
+    },
+
+    showConfirm(title, message) {
+        return new Promise((resolve) => {
+            const el = document.getElementById('genericConfirmModal');
+            document.getElementById('gConfirmTitle').innerText = title;
+            document.getElementById('gConfirmMessage').innerText = message;
+
+            const yesBtn = document.getElementById('gConfirmYesBtn');
+            const noBtn = document.getElementById('gConfirmCancelBtn');
+            const overlay = el; // Clicking outside? optional logic
+
+            const cleanup = () => {
+                el.classList.remove('open');
+                yesBtn.removeEventListener('click', onYes);
+                noBtn.removeEventListener('click', onNo);
+            };
+
+            const onYes = () => { cleanup(); resolve(true); };
+            const onNo = () => { cleanup(); resolve(false); };
+
+            yesBtn.addEventListener('click', onYes);
+            noBtn.addEventListener('click', onNo);
+            el.classList.add('open');
+        });
     },
 
     async copyText() {

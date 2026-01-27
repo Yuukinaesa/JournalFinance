@@ -101,16 +101,21 @@ class Auth {
     }
 
     static async logoutAll() {
-        if (!this.isAuthenticated()) return;
+        if (!this.isAuthenticated()) return { success: false, error: 'Not authenticated' };
         try {
-            await fetch(`${API_CONFIG.BASE_URL}/api/auth/logout-all`, {
+            const res = await fetch(`${API_CONFIG.BASE_URL}/api/auth/logout-all`, {
                 method: 'POST',
                 headers: this.getHeaders()
             });
+
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || 'Server returned ' + res.status);
+            }
+            return { success: true };
         } catch (e) {
             console.error('Logout All Failed:', e);
-        } finally {
-            this.logout();
+            return { success: false, error: e.message };
         }
     }
 
