@@ -78,31 +78,57 @@ window.app = {
             // SHOW USER INFO
             this.renderHeaderUser();
 
-            // --- Cloud Init (with Offline Fallback) ---
+            // --- Cloud Init (with Connection Guard) ---
             this.showProgress(10, 'Memuat Data', 'Menghubungkan ke server...');
 
             try {
+                // Check connection first via ConnectionMonitor
+                if (typeof ConnectionMonitor !== 'undefined') {
+                    const isConnected = await ConnectionMonitor.checkAPIConnection(true);
+                    if (!isConnected) {
+                        console.warn('⚠️ No API connection, showing banner...');
+                        ConnectionMonitor.showBanner('offline');
+                    }
+                }
+
                 // Try Cloud First (Authority)
                 this.data = await Auth.fetchEntries();
                 // Update Local Cache immediately
                 await this.db.clearAll();
                 await this.db.bulkPut('entries', this.data);
                 console.log('✅ Cloud Data Loaded & Cached');
+
+                // Hide connection banner if shown
+                if (typeof ConnectionMonitor !== 'undefined') {
+                    ConnectionMonitor.hideBanner();
+                }
             } catch (e) {
-                console.warn('⚠️ Cloud fetch failed, checking local cache...', e);
-                // Fallback to Local DB
+                console.warn('⚠️ Cloud fetch failed, showing connection status...', e);
+
+                // Show appropriate connection banner
+                if (typeof ConnectionMonitor !== 'undefined') {
+                    if (!navigator.onLine) {
+                        ConnectionMonitor.showBanner('offline');
+                    } else {
+                        ConnectionMonitor.showBanner('error');
+                    }
+                }
+
+                // Fallback to Local DB (READ-ONLY MODE)
                 try {
                     const localData = await this.db.getAllEntries();
                     if (localData && localData.length > 0) {
                         this.data = localData;
-                        this.showToast('⚠️ Offline Mode: Data lokal dimuat');
+                        // Don't show toast - connection banner is more prominent
                     } else {
-                        throw new Error('Tidak ada data lokal & Gagal koneksi ke server.');
+                        // No local cache
+                        this.data = [];
+                        this.showConnectionRequiredAlert();
                     }
                 } catch (dbErr) {
                     console.error('Critical Init Error:', dbErr);
-                    this.showToast('⚠️ Gagal memuat data (Check Connection)');
                     this.data = [];
+                    this.showConnectionRequiredAlert();
                 }
             } finally {
                 this.hideProgress();
@@ -1029,6 +1055,16 @@ window.app = {
     // --- CRUD ---
 
     async saveEntry() {
+        // ⚠️ CONNECTION CHECK - Prevent data loss
+        if (!this.canPerformWriteOperation()) {
+            this.showAlert(
+                '⚠️ Tidak Dapat Menyimpan',
+                'Koneksi internet diperlukan untuk menyimpan data. ' +
+                'Data Anda TIDAK akan hilang - tunggu koneksi pulih lalu coba lagi.'
+            );
+            return;
+        }
+
         const id = document.getElementById('entryId').value;
         const date = document.getElementById('entryDate').value;
         const type = document.getElementById('entryType').value;
@@ -1122,6 +1158,17 @@ window.app = {
 
     async confirmDelete() {
         if (this.deleteTargetId) {
+            // ⚠️ CONNECTION CHECK - Prevent desync
+            if (!this.canPerformWriteOperation()) {
+                this.showAlert(
+                    '⚠️ Tidak Dapat Menghapus',
+                    'Koneksi internet diperlukan untuk menghapus data. ' +
+                    'Coba lagi setelah koneksi pulih.'
+                );
+                this.closeDeleteModal();
+                return;
+            }
+
             try {
                 await Auth.deleteEntry(this.deleteTargetId);
                 this.data = this.data.filter(item => String(item.id) !== String(this.deleteTargetId));
@@ -1129,6 +1176,12 @@ window.app = {
                 this.renderList();
             } catch (error) {
                 console.error('Delete error:', error);
+                // Check if it's a network error
+                if (error.message && (error.message.includes('fetch') || error.message.includes('network'))) {
+                    if (typeof ConnectionMonitor !== 'undefined') {
+                        ConnectionMonitor.showBanner('error');
+                    }
+                }
                 this.showToast('❌ Gagal menghapus: ' + error.message);
             }
         }
@@ -1158,6 +1211,16 @@ window.app = {
         const input = document.getElementById('resetConfirmInput');
         if (input.value.toLowerCase() !== 'yes') return;
 
+        // ⚠️ CONNECTION CHECK - Prevent partial reset
+        if (!this.canPerformWriteOperation()) {
+            this.showAlert(
+                '⚠️ Tidak Dapat Mereset',
+                'Koneksi internet diperlukan untuk mereset data cloud. ' +
+                'Coba lagi setelah koneksi pulih untuk memastikan semua data terhapus.'
+            );
+            return;
+        }
+
         try {
             this.showProgress(0, 'Menghapus Data', 'Membersihkan Cloud...');
 
@@ -1171,6 +1234,12 @@ window.app = {
             this.closeResetModal();
         } catch (e) {
             console.error('Reset error:', e);
+            // Check if it's a network error
+            if (e.message && (e.message.includes('fetch') || e.message.includes('network'))) {
+                if (typeof ConnectionMonitor !== 'undefined') {
+                    ConnectionMonitor.showBanner('error');
+                }
+            }
             this.showToast('❌ Gagal reset: ' + e.message);
         } finally {
             this.hideProgress();
@@ -1545,6 +1614,41 @@ window.app = {
         });
     },
 
+    /**
+     * Shows a connection required alert when app can't connect to server
+     * This is a more prominent notification than a simple toast
+     */
+    showConnectionRequiredAlert() {
+        this.showAlert(
+            '🔌 Koneksi Diperlukan',
+            'Aplikasi ini membutuhkan koneksi internet untuk berfungsi penuh. ' +
+            'Pastikan Anda terhubung ke internet dan coba muat ulang halaman.\n\n' +
+            '• Data tidak dapat disinkronkan\n' +
+            '• Perubahan tidak dapat disimpan\n' +
+            '• Konten mungkin tidak lengkap'
+        );
+    },
+
+    /**
+     * Checks if the app can perform write operations
+     * Returns false and shows banner if offline
+     */
+    canPerformWriteOperation() {
+        if (typeof ConnectionMonitor !== 'undefined' && ConnectionMonitor.shouldBlockOperation()) {
+            ConnectionMonitor.showBanner(!navigator.onLine ? 'offline' : 'error');
+            return false;
+        }
+        if (!navigator.onLine) {
+            if (typeof ConnectionMonitor !== 'undefined') {
+                ConnectionMonitor.showBanner('offline');
+            } else {
+                this.showToast('⚠️ Tidak ada koneksi internet');
+            }
+            return false;
+        }
+        return true;
+    },
+
     async copyText() {
         // Use filtered data so user can copy specific views (e.g. per month)
         const dataToExport = this.getFilteredData();
@@ -1553,17 +1657,31 @@ window.app = {
             return;
         }
 
-        // Format: WhatsApp Friendly
+        // Format: WhatsApp Friendly - Clean & Simple
         const lines = dataToExport.map((i, index) => {
             const date = this.formatDate(i.date);
             const type = i.type.toUpperCase();
-            const reason = i.reason ? i.reason.replace(/\n/g, ' ') : '-';
 
-            return `*${index + 1}. ${i.title}*\n📅 ${date} • ${type}\n📝 ${reason}`;
+            // Format notes with bullet points for multi-line
+            let notesSection = '';
+            if (i.reason && i.reason.trim()) {
+                const noteLines = i.reason
+                    .split('\n')
+                    .map(line => line.trim())
+                    .filter(line => line.length > 0);
+
+                if (noteLines.length === 1) {
+                    notesSection = `\n• ${noteLines[0]}`;
+                } else {
+                    notesSection = '\n' + noteLines.map(line => `• ${line}`).join('\n');
+                }
+            }
+
+            return `*${index + 1}. ${i.title}*\n${date} | ${type}${notesSection}`;
         });
 
-        const header = `📋 *LAPORAN JURNAL KEUANGAN*\nTotal: ${dataToExport.length} Catatan\nGenerated: ${new Date().toLocaleString('id-ID')}\n\n`;
-        const txt = header + lines.join('\n\n-------------------\n\n');
+        const header = `*JURNAL KEUANGAN*\n${dataToExport.length} Catatan • ${new Date().toLocaleDateString('id-ID')}\n${'─'.repeat(20)}\n\n`;
+        const txt = header + lines.join('\n\n');
 
         try {
             await navigator.clipboard.writeText(txt);

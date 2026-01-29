@@ -52,6 +52,17 @@ export default {
         try {
             // 1. API ROUTES
             if (path.startsWith('/api/')) {
+                // Health Check (for ConnectionMonitor)
+                if (path === '/api/health' && method === 'GET') {
+                    return new Response(JSON.stringify({
+                        status: 'ok',
+                        timestamp: Date.now(),
+                        version: '2.1.0'
+                    }), {
+                        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+                    });
+                }
+
                 // Auth Routes
                 if (path === '/api/auth/register' && method === 'POST') return await this.register(request, env, corsHeaders);
                 if (path === '/api/auth/login' && method === 'POST') return await this.login(request, env, corsHeaders);

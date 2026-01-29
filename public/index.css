@@ -915,3 +915,586 @@ select option {
     opacity: 1;
     visibility: visible;
 }
+
+/* ==========================================
+   CONNECTION STATUS BANNER - ULTRA PREMIUM
+   ========================================== */
+.connection-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 10000;
+    transform: translateY(-100%);
+    opacity: 0;
+    transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.connection-banner.show {
+    transform: translateY(0);
+    opacity: 1;
+}
+
+.connection-content {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 20px 28px;
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    overflow: hidden;
+}
+
+/* Animated Background Gradient */
+.connection-content::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: inherit;
+    z-index: -2;
+}
+
+/* Shimmer Effect Overlay */
+.connection-content::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg,
+            transparent 0%,
+            rgba(255, 255, 255, 0.1) 50%,
+            transparent 100%);
+    animation: shimmerBanner 3s ease-in-out infinite;
+    z-index: -1;
+}
+
+/* Floating Particles Container */
+.connection-particles {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: -1;
+}
+
+.connection-particle {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    animation: floatParticle 4s ease-in-out infinite;
+}
+
+.connection-particle:nth-child(1) {
+    left: 10%;
+    animation-delay: 0s;
+}
+
+.connection-particle:nth-child(2) {
+    left: 25%;
+    animation-delay: 0.5s;
+}
+
+.connection-particle:nth-child(3) {
+    left: 40%;
+    animation-delay: 1s;
+}
+
+.connection-particle:nth-child(4) {
+    left: 55%;
+    animation-delay: 1.5s;
+}
+
+.connection-particle:nth-child(5) {
+    left: 70%;
+    animation-delay: 2s;
+}
+
+.connection-particle:nth-child(6) {
+    left: 85%;
+    animation-delay: 2.5s;
+}
+
+/* ============ OFFLINE STATE - Intense Red ============ */
+.connection-banner.offline .connection-content {
+    background: linear-gradient(135deg,
+            rgba(239, 68, 68, 0.95) 0%,
+            rgba(220, 38, 38, 0.95) 50%,
+            rgba(185, 28, 28, 0.95) 100%);
+    background-size: 200% 200%;
+    animation: gradientShift 4s ease infinite;
+    color: white;
+    box-shadow:
+        0 8px 32px rgba(239, 68, 68, 0.5),
+        0 0 60px rgba(239, 68, 68, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.25),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.connection-banner.offline .connection-icon {
+    background: rgba(255, 255, 255, 0.2);
+    box-shadow:
+        0 0 20px rgba(255, 255, 255, 0.3),
+        inset 0 0 10px rgba(255, 255, 255, 0.1);
+    animation: pulseGlow 2s ease-in-out infinite, shakeIcon 0.5s ease-in-out infinite;
+}
+
+/* ============ SLOW CONNECTION - Vibrant Amber ============ */
+.connection-banner.slow .connection-content {
+    background: linear-gradient(135deg,
+            rgba(251, 191, 36, 0.95) 0%,
+            rgba(245, 158, 11, 0.95) 50%,
+            rgba(217, 119, 6, 0.95) 100%);
+    background-size: 200% 200%;
+    animation: gradientShift 4s ease infinite;
+    color: white;
+    box-shadow:
+        0 8px 32px rgba(245, 158, 11, 0.5),
+        0 0 60px rgba(245, 158, 11, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.connection-banner.slow .connection-icon {
+    background: rgba(255, 255, 255, 0.25);
+    box-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
+    animation: pulseGlow 1.5s ease-in-out infinite;
+}
+
+/* ============ ERROR STATE - Deep Crimson ============ */
+.connection-banner.error .connection-content {
+    background: linear-gradient(135deg,
+            rgba(153, 27, 27, 0.98) 0%,
+            rgba(127, 29, 29, 0.98) 50%,
+            rgba(69, 10, 10, 0.98) 100%);
+    background-size: 200% 200%;
+    animation: gradientShift 6s ease infinite;
+    color: #fecaca;
+    box-shadow:
+        0 8px 32px rgba(127, 29, 29, 0.6),
+        0 0 80px rgba(220, 38, 38, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.15),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.2);
+    border-bottom: 1px solid rgba(254, 202, 202, 0.2);
+}
+
+.connection-banner.error .connection-icon {
+    background: rgba(254, 202, 202, 0.15);
+    box-shadow: 0 0 30px rgba(239, 68, 68, 0.4);
+    animation: errorPulse 1s ease-in-out infinite;
+}
+
+/* ============ RECONNECTING STATE - Electric Blue ============ */
+.connection-banner.reconnecting .connection-content {
+    background: linear-gradient(135deg,
+            rgba(59, 130, 246, 0.95) 0%,
+            rgba(37, 99, 235, 0.95) 50%,
+            rgba(29, 78, 216, 0.95) 100%);
+    background-size: 200% 200%;
+    animation: gradientShift 3s ease infinite;
+    color: white;
+    box-shadow:
+        0 8px 32px rgba(59, 130, 246, 0.5),
+        0 0 60px rgba(59, 130, 246, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.connection-banner.reconnecting .connection-icon {
+    background: rgba(255, 255, 255, 0.2);
+    box-shadow: 0 0 25px rgba(147, 197, 253, 0.5);
+    animation: reconnectGlow 1.5s ease-in-out infinite;
+}
+
+/* ============ ICON STYLES ============ */
+.connection-icon {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    flex-shrink: 0;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    transition: all 0.3s ease;
+}
+
+/* Icon Ring Effect */
+.connection-icon::before {
+    content: '';
+    position: absolute;
+    top: -4px;
+    left: -4px;
+    right: -4px;
+    bottom: -4px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    animation: ringExpand 2s ease-out infinite;
+}
+
+.connection-icon svg {
+    width: 26px;
+    height: 26px;
+    stroke: currentColor;
+    stroke-width: 2.5;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+}
+
+.connection-icon svg.spin {
+    animation: spin 1s linear infinite;
+}
+
+/* ============ TEXT STYLES ============ */
+.connection-text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    min-width: 0;
+}
+
+.connection-title {
+    font-family: var(--font-display);
+    font-size: 1.1rem;
+    font-weight: 800;
+    line-height: 1.3;
+    letter-spacing: -0.02em;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.connection-subtitle {
+    font-size: 0.9rem;
+    opacity: 0.95;
+    line-height: 1.4;
+    font-weight: 500;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+/* ============ RETRY BUTTON ============ */
+.connection-retry-btn {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 24px;
+    background: rgba(255, 255, 255, 0.2);
+    border: 2px solid rgba(255, 255, 255, 0.4);
+    border-radius: 50px;
+    color: inherit;
+    font-size: 0.95rem;
+    font-weight: 700;
+    font-family: var(--font-body);
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    white-space: nowrap;
+    flex-shrink: 0;
+    overflow: hidden;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+/* Button Shine Effect */
+.connection-retry-btn::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg,
+            transparent,
+            rgba(255, 255, 255, 0.3),
+            transparent);
+    transition: left 0.5s ease;
+}
+
+.connection-retry-btn:hover {
+    background: rgba(255, 255, 255, 0.35);
+    transform: scale(1.08) translateY(-2px);
+    box-shadow:
+        0 8px 20px rgba(0, 0, 0, 0.2),
+        0 0 20px rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.6);
+}
+
+.connection-retry-btn:hover::before {
+    left: 100%;
+}
+
+.connection-retry-btn:active {
+    transform: scale(0.95);
+}
+
+.connection-retry-btn svg {
+    width: 20px;
+    height: 20px;
+    transition: transform 0.3s ease;
+}
+
+.connection-retry-btn:hover svg {
+    transform: rotate(180deg);
+}
+
+/* ============ PROGRESS BAR ============ */
+.connection-progress {
+    position: relative;
+    height: 5px;
+    background: rgba(0, 0, 0, 0.15);
+    overflow: hidden;
+}
+
+.connection-progress::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(90deg,
+            transparent 0%,
+            rgba(255, 255, 255, 0.1) 50%,
+            transparent 100%);
+    animation: progressShimmer 1.5s ease-in-out infinite;
+}
+
+.connection-progress-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg,
+            rgba(255, 255, 255, 0.6) 0%,
+            rgba(255, 255, 255, 0.9) 50%,
+            rgba(255, 255, 255, 0.6) 100%);
+    background-size: 200% 100%;
+    animation: progressGlow 1s ease-in-out infinite;
+    transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+    border-radius: 0 2px 2px 0;
+}
+
+/* ============ ANIMATIONS ============ */
+@keyframes gradientShift {
+
+    0%,
+    100% {
+        background-position: 0% 50%;
+    }
+
+    50% {
+        background-position: 100% 50%;
+    }
+}
+
+@keyframes shimmerBanner {
+    0% {
+        left: -100%;
+    }
+
+    50%,
+    100% {
+        left: 100%;
+    }
+}
+
+@keyframes floatParticle {
+
+    0%,
+    100% {
+        transform: translateY(100%) scale(0);
+        opacity: 0;
+    }
+
+    10% {
+        opacity: 1;
+        transform: translateY(80%) scale(1);
+    }
+
+    90% {
+        opacity: 1;
+        transform: translateY(-80%) scale(1);
+    }
+
+    100% {
+        transform: translateY(-100%) scale(0);
+        opacity: 0;
+    }
+}
+
+@keyframes slideDownBanner {
+    from {
+        transform: translateY(-100%) scale(0.98);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateY(0) scale(1);
+        opacity: 1;
+    }
+}
+
+@keyframes slideUpBanner {
+    from {
+        transform: translateY(0) scale(1);
+        opacity: 1;
+    }
+
+    to {
+        transform: translateY(-100%) scale(0.98);
+        opacity: 0;
+    }
+}
+
+@keyframes pulseGlow {
+
+    0%,
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
+    }
+
+    50% {
+        transform: scale(1.1);
+        box-shadow: 0 0 40px rgba(255, 255, 255, 0.5);
+    }
+}
+
+@keyframes errorPulse {
+
+    0%,
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 30px rgba(239, 68, 68, 0.4);
+    }
+
+    50% {
+        transform: scale(1.05);
+        box-shadow: 0 0 50px rgba(239, 68, 68, 0.6);
+    }
+}
+
+@keyframes reconnectGlow {
+
+    0%,
+    100% {
+        box-shadow: 0 0 25px rgba(147, 197, 253, 0.5);
+    }
+
+    50% {
+        box-shadow: 0 0 45px rgba(147, 197, 253, 0.8), 0 0 60px rgba(59, 130, 246, 0.4);
+    }
+}
+
+@keyframes shakeIcon {
+
+    0%,
+    100% {
+        transform: translateX(0) scale(1);
+    }
+
+    25% {
+        transform: translateX(-3px) scale(1.05);
+    }
+
+    75% {
+        transform: translateX(3px) scale(1.05);
+    }
+}
+
+@keyframes ringExpand {
+    0% {
+        transform: scale(1);
+        opacity: 1;
+    }
+
+    100% {
+        transform: scale(1.4);
+        opacity: 0;
+    }
+}
+
+@keyframes progressShimmer {
+    0% {
+        transform: translateX(-100%);
+    }
+
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+@keyframes progressGlow {
+
+    0%,
+    100% {
+        background-position: 0% 50%;
+    }
+
+    50% {
+        background-position: 100% 50%;
+    }
+}
+
+/* ============ MOBILE RESPONSIVE ============ */
+@media (max-width: 640px) {
+    .connection-content {
+        padding: 16px 20px;
+        gap: 14px;
+        flex-wrap: wrap;
+    }
+
+    .connection-icon {
+        width: 48px;
+        height: 48px;
+    }
+
+    .connection-icon::before {
+        display: none;
+    }
+
+    .connection-icon svg {
+        width: 22px;
+        height: 22px;
+    }
+
+    .connection-title {
+        font-size: 1rem;
+    }
+
+    .connection-subtitle {
+        font-size: 0.8rem;
+    }
+
+    .connection-retry-btn {
+        padding: 10px 20px;
+        font-size: 0.85rem;
+        width: 100%;
+        justify-content: center;
+        margin-top: 8px;
+    }
+
+    .connection-text {
+        flex: 1 1 calc(100% - 70px);
+    }
+
+    .connection-particle {
+        display: none;
+    }
+}
+
+/* Dark mode adjustments */
+[data-theme="dark"] .connection-banner .connection-content {
+    border-bottom-color: rgba(255, 255, 255, 0.1);
+}
