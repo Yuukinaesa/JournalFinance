@@ -111,17 +111,25 @@ export default {
 
                         const imageDataToSave = (e.imageData !== undefined) ? e.imageData : (exists ? exists.image_data : null);
 
-                        await env.DB.prepare(`
-                            INSERT INTO entries (id, user_id, date, title, type, amount, reason, highlight, pinned, has_image, image_data, timestamp)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            ON CONFLICT(id) DO UPDATE SET
-                            date=excluded.date, title=excluded.title, type=excluded.type, amount=excluded.amount, 
-                            reason=excluded.reason, highlight=excluded.highlight, pinned=excluded.pinned, 
-                            has_image=excluded.has_image, image_data=excluded.image_data, timestamp=excluded.timestamp
-                        `).bind(
-                            e.id, user.id, e.date, e.title, e.type, e.amount || 0, e.reason || '',
-                            e.highlight ? 1 : 0, e.pinned ? 1 : 0, e.hasImage ? 1 : 0, imageDataToSave, e.timestamp
-                        ).run();
+                        await env.DB.batch([
+                            env.DB.prepare(`
+                                INSERT OR IGNORE INTO entries (id, user_id, date, title, type, amount, reason, highlight, pinned, has_image, image_data, timestamp)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            `).bind(
+                                e.id, user.id, e.date, e.title, e.type, e.amount || 0, e.reason || '',
+                                e.highlight ? 1 : 0, e.pinned ? 1 : 0, e.hasImage ? 1 : 0, imageDataToSave, e.timestamp
+                            ),
+                            env.DB.prepare(`
+                                UPDATE entries SET
+                                date=?, title=?, type=?, amount=?, reason=?, 
+                                highlight=?, pinned=?, has_image=?, image_data=?, timestamp=?
+                                WHERE id = ? AND user_id = ?
+                            `).bind(
+                                e.date, e.title, e.type, e.amount || 0, e.reason || '',
+                                e.highlight ? 1 : 0, e.pinned ? 1 : 0, e.hasImage ? 1 : 0, imageDataToSave, e.timestamp,
+                                e.id, user.id
+                            )
+                        ]);
 
                         return new Response(JSON.stringify({ success: true, id: e.id }), { headers: corsHeaders });
                     }
@@ -274,37 +282,56 @@ export default {
     async syncData(request, env, user, headers) {
         const { entries } = await request.json();
         if (entries && Array.isArray(entries) && entries.length > 0) {
-            const stmt = env.DB.prepare(`
-            INSERT INTO entries (id, user_id, date, title, type, amount, reason, highlight, pinned, has_image, image_data, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-            date=excluded.date, title=excluded.title, type=excluded.type, amount=excluded.amount, reason=excluded.reason, 
-            highlight=excluded.highlight, pinned=excluded.pinned, has_image=excluded.has_image, 
-            image_data=excluded.image_data, timestamp=excluded.timestamp
-        `);
-            // Batch execution
-            const batch = entries.map(e => stmt.bind(
-                e.id,
-                user.id,
-                e.date,
-                e.title,
-                e.type,
-                e.amount || 0, // Ensure amount is handled
-                e.reason || '',
-                e.highlight ? 1 : 0,
-                e.pinned ? 1 : 0,
-                e.hasImage ? 1 : 0,
-                e.imageData || null, // Handle Base64 Image
-                e.timestamp
-            ));
+            const batchStmts = [];
 
-            // Only execute batch if there are items
-            if (batch.length > 0) {
-                await env.DB.batch(batch);
+            // Prepare Statements
+            // 1. Try Insert (Safe)
+            const insertStmt = env.DB.prepare(`
+                INSERT OR IGNORE INTO entries (id, user_id, date, title, type, amount, reason, highlight, pinned, has_image, image_data, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+
+            // 2. Update ONLY if owned by user
+            const updateStmt = env.DB.prepare(`
+                UPDATE entries SET
+                date=?, title=?, type=?, amount=?, reason=?, 
+                highlight=?, pinned=?, has_image=?, 
+                image_data=?, timestamp=?
+                WHERE id = ? AND user_id = ?
+            `);
+
+            for (const e of entries) {
+                const amount = e.amount || 0;
+                const reason = e.reason || '';
+                const highlight = e.highlight ? 1 : 0;
+                const pinned = e.pinned ? 1 : 0;
+                const hasImage = e.hasImage ? 1 : 0;
+                const imageData = e.imageData || null;
+
+                // Push Insert
+                batchStmts.push(insertStmt.bind(
+                    e.id, user.id, e.date, e.title, e.type,
+                    amount, reason, highlight, pinned, hasImage, imageData, e.timestamp
+                ));
+
+                // Push Update
+                batchStmts.push(updateStmt.bind(
+                    e.date, e.title, e.type, amount, reason,
+                    highlight, pinned, hasImage, imageData, e.timestamp,
+                    e.id, user.id // Where Clause
+                ));
+            }
+
+            // Execute Batch
+            if (batchStmts.length > 0) {
+                // Split into chunks if too large (D1 limit is usually high, but safe practice)
+                const CHUNK_SIZE = 100; // 50 entries * 2 statements = 100
+                for (let i = 0; i < batchStmts.length; i += CHUNK_SIZE) {
+                    await env.DB.batch(batchStmts.slice(i, i + CHUNK_SIZE));
+                }
             }
         }
 
-        // Fetch fresh data including images
         // Fetch fresh data (METADATA ONLY) to prevent huge payload crash
         // Client can fetch images lazily
         const { results } = await env.DB.prepare('SELECT id, user_id, date, title, type, amount, reason, highlight, pinned, has_image, timestamp, last_synced FROM entries WHERE user_id = ? ORDER BY date DESC').bind(user.id).all();

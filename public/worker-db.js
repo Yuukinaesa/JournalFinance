@@ -154,14 +154,12 @@ async function handleRestore(fileOrData) {
 
         // Detect Legacy Format (Array) and Normalize
         if (Array.isArray(json)) {
-            // Convert to V2 structure with Strict Sanitization
             const entries = [];
             const images = [];
 
             json.forEach(item => {
-                // Strict Allowlist
                 const entry = {
-                    id: String(item.id || Date.now() + Math.random()),
+                    id: String(item.id || crypto.randomUUID()),
                     date: String(item.date || new Date().toISOString().slice(0, 10)),
                     title: String(item.title || 'Untitled'),
                     type: String(item.type || 'lainnya'),
@@ -169,7 +167,7 @@ async function handleRestore(fileOrData) {
                     highlight: !!item.highlight,
                     pinned: !!item.pinned,
                     timestamp: Number(item.timestamp) || Date.now(),
-                    hasImage: false // Will be set below
+                    hasImage: false
                 };
 
                 // Extract embedded image
@@ -180,11 +178,10 @@ async function handleRestore(fileOrData) {
                     });
                     entry.hasImage = true;
                 } else if (item.hasImage) {
-                    entry.hasImage = true; // Trust existing flag if no image data but maybe in images store (if V2)
+                    entry.hasImage = true;
                 }
 
                 entry.amount = parseFloat(item.amount) || 0;
-
                 entries.push(entry);
             });
 
@@ -200,6 +197,31 @@ async function handleRestore(fileOrData) {
             throw new Error('Format file tidak valid / versi tidak didukung.');
         }
 
+        // --- ID REGENERATION (CRITICAL FOR IMPORT/RESTORE) ---
+        // Prevent ID collisions and allow cross-account imports
+        const idMap = new Map();
+
+        json.entries.forEach(entry => {
+            const oldId = entry.id;
+            const newId = crypto.randomUUID();
+            idMap.set(String(oldId), newId);
+            entry.id = newId;
+        });
+
+        // Update Image References
+        if (json.images && Array.isArray(json.images)) {
+            // Filter orphans and update IDs
+            json.images = json.images.reduce((acc, img) => {
+                const newId = idMap.get(String(img.entryId));
+                if (newId) {
+                    img.entryId = newId;
+                    acc.push(img);
+                }
+                return acc;
+            }, []);
+        }
+        // -----------------------------------------------------
+
         const totalEntries = json.entries.length;
         const totalImages = (json.images || []).length;
         const totalItems = totalEntries + totalImages;
@@ -209,13 +231,14 @@ async function handleRestore(fileOrData) {
         postProgress('restore', 5, 100, 'saving_checkpoint');
         await db.saveRestorePoint(json);
 
-        // 2. Clear Database
+        // 2. Clear Database (Local only, Cloud wipe happens in main thread usually, 
+        // but here we just prep local state. Wait, sync will push this up.)
         postProgress('restore', 10, 100, 'clearing_db');
         await db.clearAll();
 
         // 3. Restore Entries
         if (totalEntries > 0) {
-            postProgress('restore', 15, 100, ' restoring_entries');
+            postProgress('restore', 15, 100, 'restoring_entries');
             await db.bulkPut('entries', json.entries, (c, t) => {
                 const pct = 15 + (c / totalEntries * 35); // 15-50%
                 postProgress('restore', pct, 100, 'restoring_entries');

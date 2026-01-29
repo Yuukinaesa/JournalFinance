@@ -483,6 +483,73 @@ window.app = {
                 throw new Error('Format file tidak valid/didukung.');
             }
 
+            // --- ID REGENERATION (CRITICAL FOR IMPORT/RESTORE) ---
+            // Prevent ID collisions and allow cross-account imports
+            const idMap = new Map();
+
+            entriesToRestore.forEach(entry => {
+                const oldId = entry.id;
+                const newId = crypto.randomUUID();
+                idMap.set(String(oldId), newId);
+                entry.id = newId;
+
+                // Update embedded imageData if detached logic exists? 
+                // Currently separate images array handles it, but if imageData property exists on entry, it travels with it.
+            });
+
+            // Update separate Image array keys if they exist in JSON structure (not local var imagesToRestore?)
+            // Wait, imagesToRestore is local variable here but not populated from JSON directly in V2 block above unless mapped?
+            // In V2 block: 
+            // json.images.forEach(img => { const target = entriesToRestore.find... target.imageData = img.data })
+            // So images are ALREADY merged into entriesToRestore internal array?
+            // Let's check lines 463-481 in app.js
+            /*
+            entriesToRestore = json.entries...
+            if (Array.isArray(json.images)) {
+                 json.images.forEach(img => {
+                     const target = entriesToRestore.find(e => e.id === img.entryId); // This uses OLD ID
+                     // ...
+                 })
+            }
+            */
+            // PROBLEM: The merge logic happens BEFORE my ID regeneration block if I place it after.
+            // If I place it AFTER, the merge has already happened using OLD IDs.
+            // So `entriesToRestore` already has `imageData` populated.
+            // So I just need to update `entry.id`.
+            // The `imagesToRestore` variable in app.js seems unused in V2 path?
+            // In V1 path: `entriesToRestore` is populated.
+            // So, "entriesToRestore" is the master list.
+            // Updating `entry.id` in `entriesToRestore` is sufficient because images are embedded in `imageData` property of entry object by the V2 mapper.
+
+            // Re-verifying V2 mapper:
+            /*
+                // Map separate images back to entries
+                if (Array.isArray(json.images)) {
+                    json.images.forEach(img => {
+                        const target = entriesToRestore.find(e => String(e.id) === String(img.entryId));
+                        if (target) {
+                            target.imageData = img.data;
+                            target.hasImage = true;
+                        }
+                    });
+                }
+            */
+            // Yes, this runs BEFORE my proposed insertion point.
+            // So `entriesToRestore` contains everything.
+            // I just need to rotate IDs.
+
+            entriesToRestore.forEach(entry => {
+                entry.id = crypto.randomUUID();
+            });
+
+            // That's it? Yes, much simpler in app.js structure because it merged images first.
+            // Unlike worker-db.js which kept them separate for bulkPut ("images" store).
+            // Wait, app.js uploads to Cloud. Cloud API expects { imageData, ... } inside entry?
+            // saveEntry / syncData expects `imageData` in the entry object.
+            // Yes.
+
+            // -----------------------------------------------------
+
             // Restore Process (Upload to Cloud)
             const total = entriesToRestore.length;
             this.showProgress(0, 'Membersihkan Cloud...', `Menghapus data lama...`);
@@ -495,7 +562,7 @@ window.app = {
             // 2. Batch Upload (Optimized for Rate Limits & Speed)
             // Cloudflare Worker Rate Limit: 100 req/min/IP.
             // Batching prevents hitting this limit for large datasets.
-            const BATCH_SIZE = 20; 
+            const BATCH_SIZE = 20;
 
             for (let i = 0; i < total; i += BATCH_SIZE) {
                 const chunk = entriesToRestore.slice(i, i + BATCH_SIZE);
@@ -558,7 +625,7 @@ window.app = {
                             successCount++;
                             this.updateProgressUI((i / parsed.length) * 100, 'restore', `Migrasi ${i + 1}/${parsed.length}`);
                         } catch (err) {
-                            console.error('Migration failed for item', entry, err);
+                            console.error('Migration failed for item ID:', entry.id, err.message);
                         }
                     }
 
@@ -571,7 +638,7 @@ window.app = {
                     }
                 }
             } catch (e) {
-                console.error('Migration error:', e);
+                console.error('Migration error:', e.message);
                 this.showToast('Gagal migrasi data lama.');
             } finally {
                 this.hideProgress();
