@@ -492,19 +492,25 @@ window.app = {
 
             this.showProgress(0, 'Restore ke Cloud...', `Memproses ${total} data...`);
 
-            // Sequential Upload to avoid rate limits / connection issues
-            // (Parallel Promise.all is faster but risky for large restoration)
-            for (let i = 0; i < total; i++) {
-                const entry = entriesToRestore[i];
+            // 2. Batch Upload (Optimized for Rate Limits & Speed)
+            // Cloudflare Worker Rate Limit: 100 req/min/IP.
+            // Batching prevents hitting this limit for large datasets.
+            const BATCH_SIZE = 20; 
+
+            for (let i = 0; i < total; i += BATCH_SIZE) {
+                const chunk = entriesToRestore.slice(i, i + BATCH_SIZE);
                 try {
-                    await Auth.saveEntry(entry);
+                    // Use syncWithCloud which uses /api/data/sync (Batch Insert)
+                    await Auth.syncWithCloud(chunk);
                 } catch (e) {
-                    console.error('Failed to restore entry', entry.id, e);
+                    console.error(`Batch restore failed at index ${i}`, e);
+                    throw new Error(`Gagal upload batch data (Items ${i + 1}-${Math.min(i + BATCH_SIZE, total)}). ${e.message}`);
                 }
 
                 // Update Progress UI
-                const pct = Math.floor(((i + 1) / total) * 100);
-                this.updateProgressUI(pct, 'restore', `Mengupload ${i + 1}/${total}...`);
+                const currentCount = Math.min(i + BATCH_SIZE, total);
+                const pct = Math.floor((currentCount / total) * 100);
+                this.updateProgressUI(pct, 'restore', `Mengupload ${currentCount}/${total}...`);
             }
 
             this.handleSuccess('restore');
