@@ -418,23 +418,23 @@ window.app = {
         this.showProgress(0, 'Menyiapkan Restore...', 'Mengirim data...');
         localStorage.setItem('APP_STATUS', 'RESTORING');
 
-        if (this.worker) {
-            this.worker.postMessage({ action: 'restore', payload: file });
-        } else {
-            // Main thread fallback: Need to read file text first
-            const reader = new FileReader();
-            reader.onload = async (e) => {
-                try {
-                    const json = JSON.parse(e.target.result);
-                    await this.processRestoreMain(json);
-                } catch (err) {
-                    this.hideProgress();
-                    this.showAlert('File Error', 'File corrupt: ' + err.message);
-                    localStorage.removeItem('APP_STATUS');
-                }
-            };
-            reader.readAsText(file);
-        }
+        // ⚠️ FORCE MAIN THREAD RESTORE for Cloud Sync Correctness
+        // We bypass the worker here because the worker-side restore only updates the local DB
+        // and misses the critical step of wiping/uploading to the Cloud, which processRestoreMain handles.
+
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            try {
+                const json = JSON.parse(e.target.result);
+                // processRestoreMain handles Cloud Wipe & Upload
+                await this.processRestoreMain(json);
+            } catch (err) {
+                this.hideProgress();
+                this.showAlert('File Error', 'File corrupt: ' + err.message);
+                localStorage.removeItem('APP_STATUS');
+            }
+        };
+        reader.readAsText(file);
 
         input.value = '';
     },
@@ -1116,8 +1116,17 @@ window.app = {
 
         try {
             // Full Cloud Save
-            // Include imageData directly in the payload
-            const payload = { ...entry, imageData };
+            // Logic:
+            // - If new image (imageData set) -> Send it
+            // - If pending clear (pendingImageClear) -> Send null
+            // - If neither -> Omit imageData from payload (undefined) to PRESERVE existing
+            const payload = { ...entry };
+
+            if (imageData) {
+                payload.imageData = imageData;
+            } else if (this.pendingImageClear) {
+                payload.imageData = null;
+            }
 
             await Auth.saveEntry(payload);
 
