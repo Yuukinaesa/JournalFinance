@@ -55,6 +55,8 @@ window.app = {
     data: [],
     worker: null,
     deferredPrompt: null, // Will be set from global
+    isSyncing: false,
+
 
     async init() {
         try {
@@ -324,6 +326,7 @@ window.app = {
     // --- Backup & Utils ---
 
     async backupData() {
+        await this.waitForSync('Backup');
         this.showProgress(0, 'Menyiapkan Backup...', 'Memulai...');
 
         if (this.worker) {
@@ -414,6 +417,8 @@ window.app = {
             input.value = '';
             return;
         }
+
+        await this.waitForSync('Restore');
 
         this.showProgress(0, 'Menyiapkan Restore...', 'Mengirim data...');
         localStorage.setItem('APP_STATUS', 'RESTORING');
@@ -705,8 +710,20 @@ window.app = {
 
     // --- Sync Logic ---
 
+    async waitForSync(operation = 'Proses') {
+        if (this.isSyncing) {
+            this.showProgress(0, 'Menunggu Sinkronisasi', `Menyelesaikan background sync sebelum ${operation}...`);
+            while (this.isSyncing) {
+                await new Promise(r => setTimeout(r, 500));
+            }
+        }
+    },
+
     async performSync() {
+        if (this.isSyncing) return;
         if (!Auth.isAuthenticated()) return;
+
+        this.isSyncing = true;
 
         try {
             this.showToast('🔄 Mengunduh data terbaru...');
@@ -792,6 +809,8 @@ window.app = {
                 return;
             }
             this.showToast('⚠️ Gagal sinkronisasi: ' + (e.message || 'Koneksi bermasalah'));
+        } finally {
+            this.isSyncing = false;
         }
     },
 
