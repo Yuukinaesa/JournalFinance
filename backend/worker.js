@@ -9,13 +9,34 @@ export default {
         const path = url.pathname;
         const method = request.method;
 
-        // CORS Headers - MUST be defined FIRST before any usage
+        // SECURITY: Strict CORS - Restrict to specific origins
+        // In production, set env.ALLOWED_ORIGIN to your production domain
+        const requestOrigin = request.headers.get('Origin');
+        const allowedOrigins = [
+            'https://catatan.arfan-hidayat-priyantono.workers.dev',
+            'https://journal-finance.pages.dev', // If deployed to Pages
+            env.ALLOWED_ORIGIN // Custom origin from environment variable
+        ].filter(Boolean); // Remove undefined values
+
+        let corsOrigin = requestOrigin && allowedOrigins.includes(requestOrigin)
+            ? requestOrigin
+            : allowedOrigins[0]; // Default to first allowed origin
+
+        // For local development ONLY, allow localhost
+        if (requestOrigin &&
+            (requestOrigin.includes('localhost') || requestOrigin.includes('127.0.0.1')) &&
+            url.hostname.includes('localhost')) {
+            corsOrigin = requestOrigin;
+        }
+
+        // CORS Headers - NOW RESTRICTED
         const corsHeaders = {
-            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Origin': corsOrigin,
             'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, DELETE',
             'Access-Control-Allow-Headers': 'Content-Type, Authorization',
             'X-Content-Type-Options': 'nosniff',
-            'X-Frame-Options': 'DENY'
+            'X-Frame-Options': 'DENY',
+            'Vary': 'Origin' // Important for caching correctness
         };
 
         if (method === 'OPTIONS') {
@@ -23,11 +44,14 @@ export default {
         }
 
         // --- SECURITY: RATE LIMITING (Memory-based for Hot Isolate) ---
-        // 100 requests per minute per IP
+        // 100 requests per minute per IP with LRU eviction to prevent memory leak
         const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
         const currentTime = Date.now();
 
-        if (!globalThis.rateLimiter) globalThis.rateLimiter = new Map();
+        if (!globalThis.rateLimiter) {
+            globalThis.rateLimiter = new Map();
+            globalThis.rateLimiterLastCleanup = currentTime;
+        }
         const limiter = globalThis.rateLimiter;
 
         const limitData = limiter.get(clientIp) || { count: 0, lastReset: currentTime };
@@ -46,6 +70,22 @@ export default {
                 status: 429,
                 headers: corsHeaders
             });
+        }
+
+        // MEMORY LEAK FIX: Periodic cleanup of old entries (every 5 minutes)
+        // This prevents unbounded growth from unique IPs
+        if (currentTime - globalThis.rateLimiterLastCleanup > 300000) {
+            const maxEntries = 1000; // Keep at most 1000 IPs in memory
+            if (limiter.size > maxEntries) {
+                // Remove oldest 20% of entries (simple LRU)
+                const entriesToRemove = Math.floor(limiter.size * 0.2);
+                const iterator = limiter.keys();
+                for (let i = 0; i < entriesToRemove; i++) {
+                    const key = iterator.next().value;
+                    if (key) limiter.delete(key);
+                }
+            }
+            globalThis.rateLimiterLastCleanup = currentTime;
         }
         // -----------------------------------------------------------
 
@@ -106,29 +146,108 @@ export default {
                         return new Response(JSON.stringify({ success: false, error: 'Not found' }), { status: 404, headers: corsHeaders });
                     }
 
-                    // 3. CREATE / UPDATE ENTRY (Upsert)
+                    // 3. CREATE / UPDATE ENTRY (Upsert) - WITH COMPREHENSIVE VALIDATION
                     if (path === '/api/entries' && method === 'POST') {
+                        // SECURITY: Validate Content-Type
+                        const contentType = request.headers.get('Content-Type');
+                        if (!contentType || !contentType.includes('application/json')) {
+                            return new Response(JSON.stringify({ error: 'Invalid Content-Type' }), { status: 400, headers: corsHeaders });
+                        }
+
                         const e = await request.json();
 
-                        // If image_data is NOT provided, we should probably keep existing if it exists, or handle it carefully.
-                        // However, for simplicity in this full-cloud migration: expecting full payload for save.
-                        // But wait, if we edit text only, we don't want to re-upload image.
-                        // Logic: check if imageData is present in payload.
+                        // SECURITY & DATA INTEGRITY: Input Validation
 
-                        let query;
-                        let args;
+                        // 1. ID Validation (UUID format, max 50 chars)
+                        if (!e.id || typeof e.id !== 'string' || e.id.length === 0 || e.id.length > 50) {
+                            return new Response(JSON.stringify({ error: 'Invalid or missing ID' }), { status: 400, headers: corsHeaders });
+                        }
+                        if (!/^[a-zA-Z0-9_-]+$/.test(e.id)) {
+                            return new Response(JSON.stringify({ error: 'ID contains invalid characters' }), { status: 400, headers: corsHeaders });
+                        }
 
+                        // 2. Date Validation (YYYY-MM-DD)
+                        if (!e.date || typeof e.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(e.date)) {
+                            return new Response(JSON.stringify({ error: 'Invalid date format (use YYYY-MM-DD)' }), { status: 400, headers: corsHeaders });
+                        }
+                        const dateObj = new Date(e.date);
+                        if (isNaN(dateObj.getTime())) {
+                            return new Response(JSON.stringify({ error: 'Invalid date value' }), { status: 400, headers: corsHeaders });
+                        }
+
+                        // 3. Title Validation (required, max 200 chars)
+                        if (!e.title || typeof e.title !== 'string' || e.title.trim().length === 0 || e.title.length > 200) {
+                            return new Response(JSON.stringify({ error: 'Title required (max 200 chars)' }), { status: 400, headers: corsHeaders });
+                        }
+                        const title = e.title.trim().replace(/[\x00-\x1F\x7F]/g, '');
+
+                        // 4. Type Validation (whitelist)
+                        const validTypes = ['saham', 'kripto', 'barang', 'peristiwa', 'lainnya'];
+                        if (!validTypes.includes(e.type)) {
+                            return new Response(JSON.stringify({ error: 'Invalid type' }), { status: 400, headers: corsHeaders });
+                        }
+
+                        // 5. Amount Validation (number, reasonable range)
+                        let amount = 0;
+                        if (e.amount !== undefined && e.amount !== null) {
+                            amount = parseFloat(e.amount);
+                            if (isNaN(amount) || amount < -1e12 || amount > 1e12) {
+                                return new Response(JSON.stringify({ error: 'Invalid amount' }), { status: 400, headers: corsHeaders });
+                            }
+                        }
+
+                        // 6. Reason Validation (max 5000 chars)
+                        let reason = '';
+                        if (e.reason !== undefined && e.reason !== null) {
+                            if (typeof e.reason !== 'string' || e.reason.length > 5000) {
+                                return new Response(JSON.stringify({ error: 'Reason too long (max 5000)' }), { status: 400, headers: corsHeaders });
+                            }
+                            reason = e.reason;
+                        }
+
+                        // 7. Boolean Validation
+                        const highlight = !!e.highlight;
+                        const pinned = !!e.pinned;
+                        const hasImage = !!e.hasImage;
+
+                        // 8. Timestamp Validation
+                        let timestamp = Date.now();
+                        if (e.timestamp !== undefined && e.timestamp !== null) {
+                            timestamp = parseInt(e.timestamp);
+                            if (isNaN(timestamp) || timestamp < 0 || timestamp > Date.now() + 86400000) {
+                                timestamp = Date.now(); // Fallback to current time if invalid
+                            }
+                        }
+
+                        // 9. Image Data Validation (base64, max ~10MB)
                         const exists = await env.DB.prepare('SELECT id, image_data FROM entries WHERE id = ? AND user_id = ?').bind(e.id, user.id).first();
+                        let imageDataToSave = null;
 
-                        const imageDataToSave = (e.imageData !== undefined) ? e.imageData : (exists ? exists.image_data : null);
+                        if (e.imageData !== undefined) {
+                            if (e.imageData !== null) {
+                                if (typeof e.imageData !== 'string') {
+                                    return new Response(JSON.stringify({ error: 'Invalid image data type' }), { status: 400, headers: corsHeaders });
+                                }
+                                if (!/^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(e.imageData)) {
+                                    return new Response(JSON.stringify({ error: 'Invalid image format' }), { status: 400, headers: corsHeaders });
+                                }
+                                if (e.imageData.length > 10 * 1024 * 1024) {
+                                    return new Response(JSON.stringify({ error: 'Image too large (max 10MB)' }), { status: 400, headers: corsHeaders });
+                                }
+                                imageDataToSave = e.imageData;
+                            }
+                        } else {
+                            imageDataToSave = exists ? exists.image_data : null;
+                        }
 
+                        // SAVE TO DATABASE (with validated data)
                         await env.DB.batch([
                             env.DB.prepare(`
                                 INSERT OR IGNORE INTO entries (id, user_id, date, title, type, amount, reason, highlight, pinned, has_image, image_data, timestamp)
                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             `).bind(
-                                e.id, user.id, e.date, e.title, e.type, e.amount || 0, e.reason || '',
-                                e.highlight ? 1 : 0, e.pinned ? 1 : 0, e.hasImage ? 1 : 0, imageDataToSave, e.timestamp
+                                e.id, user.id, e.date, title, e.type, amount, reason,
+                                highlight ? 1 : 0, pinned ? 1 : 0, hasImage ? 1 : 0, imageDataToSave, timestamp
                             ),
                             env.DB.prepare(`
                                 UPDATE entries SET
@@ -136,8 +255,8 @@ export default {
                                 highlight=?, pinned=?, has_image=?, image_data=?, timestamp=?
                                 WHERE id = ? AND user_id = ?
                             `).bind(
-                                e.date, e.title, e.type, e.amount || 0, e.reason || '',
-                                e.highlight ? 1 : 0, e.pinned ? 1 : 0, e.hasImage ? 1 : 0, imageDataToSave, e.timestamp,
+                                e.date, title, e.type, amount, reason,
+                                highlight ? 1 : 0, pinned ? 1 : 0, hasImage ? 1 : 0, imageDataToSave, timestamp,
                                 e.id, user.id
                             )
                         ]);
@@ -145,7 +264,7 @@ export default {
                         return new Response(JSON.stringify({ success: true, id: e.id }), { headers: corsHeaders });
                     }
 
-                    // 4. DELETE ENTRY
+
                     if (path.startsWith('/api/entries/') && method === 'DELETE') {
                         const entryId = path.split('/')[3];
                         await env.DB.prepare('DELETE FROM entries WHERE id = ? AND user_id = ?').bind(entryId, user.id).run();
