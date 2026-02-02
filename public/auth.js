@@ -9,8 +9,22 @@ const API_CONFIG = {
     // Logic Dual Support:
     // 1. Jika dibuka dari Cloudflare (workers.dev) -> Gunakan Relative Path (lebih cepat)
     // 2. Jika dibuka dari GitHub Pages / Localhost -> Gunakan Absolute URL
-    BASE_URL: window.location.hostname.includes('workers.dev') ? '' : WORKER_URL
+    BASE_URL: window.location.hostname.includes('workers.dev') ? '' : WORKER_URL,
+    TIMEOUT: 30000 // 30 seconds timeout for all requests
 };
+
+/**
+ * UTILITY: Fetch with Timeout
+ * Prevents indefinite hang on network failures
+ */
+function fetchWithTimeout(url, options = {}, timeout = API_CONFIG.TIMEOUT) {
+    return Promise.race([
+        fetch(url, options),
+        new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Network timeout (30s exceeded)')), timeout)
+        )
+    ]);
+}
 
 class Auth {
     static getToken() {
@@ -58,7 +72,7 @@ class Auth {
             const body = { email, password };
             if (username) body.username = username;
 
-            const response = await fetch(`${API_CONFIG.BASE_URL}/api/auth/register`, {
+            const response = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/api/auth/register`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body)
@@ -75,7 +89,7 @@ class Auth {
 
     static async login(email, password) {
         try {
-            const response = await fetch(`${API_CONFIG.BASE_URL}/api/auth/login`, {
+            const response = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/api/auth/login`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, password })
@@ -106,7 +120,7 @@ class Auth {
     static async logoutAll() {
         if (!this.isAuthenticated()) return { success: false, error: 'Not authenticated' };
         try {
-            const res = await fetch(`${API_CONFIG.BASE_URL}/api/auth/logout-all`, {
+            const res = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/api/auth/logout-all`, {
                 method: 'POST',
                 headers: this.getHeaders()
             });
@@ -135,7 +149,7 @@ class Auth {
     static async fetchEntries() {
         if (!this.isAuthenticated()) return [];
         try {
-            const res = await fetch(`${API_CONFIG.BASE_URL}/api/entries`, {
+            const res = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/api/entries`, {
                 headers: this.getHeaders()
             });
             if (res.status === 401) {
@@ -155,7 +169,7 @@ class Auth {
     static async fetchImage(id) {
         if (!this.isAuthenticated()) return null;
         try {
-            const res = await fetch(`${API_CONFIG.BASE_URL}/api/entries/${id}/image`, {
+            const res = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/api/entries/${id}/image`, {
                 headers: this.getHeaders()
             });
             if (!res.ok) return null;
@@ -169,7 +183,7 @@ class Auth {
     static async saveEntry(entry) {
         if (!this.isAuthenticated()) throw new Error('Unauthorized');
         try {
-            const res = await fetch(`${API_CONFIG.BASE_URL}/api/entries`, {
+            const res = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/api/entries`, {
                 method: 'POST',
                 headers: this.getHeaders(),
                 body: JSON.stringify(entry)
@@ -195,7 +209,7 @@ class Auth {
     static async deleteEntry(id) {
         if (!this.isAuthenticated()) throw new Error('Unauthorized');
         try {
-            const res = await fetch(`${API_CONFIG.BASE_URL}/api/entries/${id}`, {
+            const res = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/api/entries/${id}`, {
                 method: 'DELETE',
                 headers: this.getHeaders()
             });
@@ -217,7 +231,7 @@ class Auth {
     static async syncWithCloud(entries) {
         if (!this.isAuthenticated()) return [];
         try {
-            const res = await fetch(`${API_CONFIG.BASE_URL}/api/data/sync`, {
+            const res = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/api/data/sync`, {
                 method: 'POST',
                 headers: this.getHeaders(),
                 body: JSON.stringify({ entries })
@@ -241,7 +255,7 @@ class Auth {
     static async resetCloud() {
         if (!this.isAuthenticated()) return;
         try {
-            const res = await fetch(`${API_CONFIG.BASE_URL}/api/data/reset`, {
+            const res = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/api/data/reset`, {
                 method: 'DELETE',
                 headers: this.getHeaders()
             });

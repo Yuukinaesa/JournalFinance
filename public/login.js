@@ -1,14 +1,8 @@
 // Login Page Logic
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Service Worker Cleanup
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then(function (registrations) {
-            for (let registration of registrations) {
-                registration.unregister();
-            }
-        });
-    }
+    // Removed: Service Worker unregistration (unnecessary churn)
+    // Service Workers should persist for optimal caching
 
     // Redirect if already logged in
     if (typeof Auth !== 'undefined' && Auth.isAuthenticated()) {

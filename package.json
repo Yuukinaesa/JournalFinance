@@ -1,7 +1,8 @@
 {
   "name": "journal-finance-app",
-  "version": "2.2.0",
+  "version": "2.4.0",
   "description": "Enterprise Grade Financial Journal PWA with Cloud Sync",
+  "type": "module",
   "private": true,
   "scripts": {
     "start": "npx wrangler dev",

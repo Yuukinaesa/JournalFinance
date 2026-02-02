@@ -3,6 +3,41 @@
  * SERVING API + STATIC ASSETS (Hybrid Mode)
  */
 
+// ============================================================
+// CONFIGURATION CONSTANTS
+// ============================================================
+const CONSTANTS = {
+    // Rate Limiting
+    RATE_LIMIT_MAX_REQUESTS: 100,           // Max requests per window
+    RATE_LIMIT_WINDOW_MS: 60000,            // 60 seconds
+    RATE_LIMIT_CLEANUP_INTERVAL_MS: 300000, // 5 minutes
+    RATE_LIMIT_MAX_IPS: 1000,               // Max IPs to track
+    RATE_LIMIT_EVICTION_PERCENT: 0.2,       // Evict 20% when full
+
+    // JWT Token Expiration
+    JWT_ACCESS_TOKEN_EXPIRE_SEC: 3600,      // 1 hour
+    JWT_REFRESH_TOKEN_EXPIRE_SEC: 604800,   // 7 days
+
+    // Password Security
+    PBKDF2_ITERATIONS: 100000,              // OWASP minimum
+    PBKDF2_KEY_LENGTH: 256,                 // 256 bits
+    PBKDF2_SALT_LENGTH: 16,                 // 16 bytes (128 bits)
+
+    // Validation Limits
+    MAX_ENTRY_ID_LENGTH: 50,
+    MAX_TITLE_LENGTH: 200,
+    MAX_REASON_LENGTH: 5000,
+    MAX_EMAIL_LENGTH: 255,
+    MAX_PASSWORD_LENGTH: 128,
+    MIN_PASSWORD_LENGTH: 8,
+    MAX_USERNAME_LENGTH: 30,
+    MIN_USERNAME_LENGTH: 3,
+    MAX_IMAGE_SIZE_BYTES: 10 * 1024 * 1024, // 10MB
+    MAX_AMOUNT_VALUE: 1e12,                  // 1 trillion
+    MIN_AMOUNT_VALUE: -1e12,
+    MAX_FUTURE_TIMESTAMP_MS: 86400000,       // 24 hours clock skew tolerance
+};
+
 export default {
     async fetch(request, env, ctx) {
         const url = new URL(request.url);
@@ -57,7 +92,7 @@ export default {
         const limitData = limiter.get(clientIp) || { count: 0, lastReset: currentTime };
 
         // Reset every 60 seconds
-        if (currentTime - limitData.lastReset > 60000) {
+        if (currentTime - limitData.lastReset > CONSTANTS.RATE_LIMIT_WINDOW_MS) {
             limitData.count = 0;
             limitData.lastReset = currentTime;
         }
@@ -65,7 +100,7 @@ export default {
         limitData.count++;
         limiter.set(clientIp, limitData);
 
-        if (limitData.count > 100) {
+        if (limitData.count > CONSTANTS.RATE_LIMIT_MAX_REQUESTS) {
             return new Response(JSON.stringify({ error: 'Too Many Requests (Rate Limit Exceeded)' }), {
                 status: 429,
                 headers: corsHeaders
@@ -74,11 +109,11 @@ export default {
 
         // MEMORY LEAK FIX: Periodic cleanup of old entries (every 5 minutes)
         // This prevents unbounded growth from unique IPs
-        if (currentTime - globalThis.rateLimiterLastCleanup > 300000) {
-            const maxEntries = 1000; // Keep at most 1000 IPs in memory
+        if (currentTime - globalThis.rateLimiterLastCleanup > CONSTANTS.RATE_LIMIT_CLEANUP_INTERVAL_MS) {
+            const maxEntries = CONSTANTS.RATE_LIMIT_MAX_IPS; // Keep at most 1000 IPs in memory
             if (limiter.size > maxEntries) {
                 // Remove oldest 20% of entries (simple LRU)
-                const entriesToRemove = Math.floor(limiter.size * 0.2);
+                const entriesToRemove = Math.floor(limiter.size * CONSTANTS.RATE_LIMIT_EVICTION_PERCENT);
                 const iterator = limiter.keys();
                 for (let i = 0; i < entriesToRemove; i++) {
                     const key = iterator.next().value;
@@ -106,6 +141,75 @@ export default {
                 // Auth Routes
                 if (path === '/api/auth/register' && method === 'POST') return await this.register(request, env, corsHeaders);
                 if (path === '/api/auth/login' && method === 'POST') return await this.login(request, env, corsHeaders);
+
+                // REFRESH TOKEN ENDPOINT - Get new access token using refresh token
+                if (path === '/api/auth/refresh' && method === 'POST') {
+                    try {
+                        const { refreshToken } = await request.json();
+
+                        if (!refreshToken) {
+                            return new Response(JSON.stringify({ error: 'Refresh token required' }), {
+                                status: 400,
+                                headers: corsHeaders
+                            });
+                        }
+
+                        if (!env.JWT_SECRET) {
+                            throw new Error('JWT_SECRET not configured');
+                        }
+
+                        // Verify refresh token
+                        const payload = await this.verifyToken(refreshToken, env.JWT_SECRET);
+
+                        // Ensure it's actually a refresh token
+                        if (payload.type !== 'refresh') {
+                            return new Response(JSON.stringify({ error: 'Invalid token type' }), {
+                                status: 403,
+                                headers: corsHeaders
+                            });
+                        }
+
+                        // Check token version (logout-all invalidation)
+                        const user = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(payload.id).first();
+                        if (!user) {
+                            return new Response(JSON.stringify({ error: 'User not found' }), {
+                                status: 404,
+                                headers: corsHeaders
+                            });
+                        }
+
+                        const currentVersion = user.token_version || 1;
+                        if (payload.v !== currentVersion) {
+                            return new Response(JSON.stringify({ error: 'Token invalidated (logged out)' }), {
+                                status: 401,
+                                headers: corsHeaders
+                            });
+                        }
+
+                        // Issue new access token
+                        const newTokenPayload = {
+                            id: user.id,
+                            email: user.email,
+                            username: user.username,
+                            v: currentVersion
+                        };
+                        const newAccessToken = await this.signToken(newTokenPayload, env.JWT_SECRET, 'access');
+
+                        return new Response(JSON.stringify({
+                            success: true,
+                            accessToken: newAccessToken,
+                            token: newAccessToken, // Backward compatibility
+                            expiresIn: CONSTANTS.JWT_ACCESS_TOKEN_EXPIRE_SEC
+                        }), { headers: corsHeaders });
+
+                    } catch (e) {
+                        return new Response(JSON.stringify({ error: 'Invalid or expired refresh token' }), {
+                            status: 401,
+                            headers: corsHeaders
+                        });
+                    }
+                }
+
                 if (path === '/api/auth/logout-all' && method === 'POST') {
                     const user = await this.verifyAuth(request, env);
                     if (!user) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: corsHeaders });
@@ -159,7 +263,7 @@ export default {
                         // SECURITY & DATA INTEGRITY: Input Validation
 
                         // 1. ID Validation (UUID format, max 50 chars)
-                        if (!e.id || typeof e.id !== 'string' || e.id.length === 0 || e.id.length > 50) {
+                        if (!e.id || typeof e.id !== 'string' || e.id.length === 0 || e.id.length > CONSTANTS.MAX_ENTRY_ID_LENGTH) {
                             return new Response(JSON.stringify({ error: 'Invalid or missing ID' }), { status: 400, headers: corsHeaders });
                         }
                         if (!/^[a-zA-Z0-9_-]+$/.test(e.id)) {
@@ -176,8 +280,8 @@ export default {
                         }
 
                         // 3. Title Validation (required, max 200 chars)
-                        if (!e.title || typeof e.title !== 'string' || e.title.trim().length === 0 || e.title.length > 200) {
-                            return new Response(JSON.stringify({ error: 'Title required (max 200 chars)' }), { status: 400, headers: corsHeaders });
+                        if (!e.title || typeof e.title !== 'string' || e.title.trim().length === 0 || e.title.length > CONSTANTS.MAX_TITLE_LENGTH) {
+                            return new Response(JSON.stringify({ error: `Title required (max ${CONSTANTS.MAX_TITLE_LENGTH} chars)` }), { status: 400, headers: corsHeaders });
                         }
                         const title = e.title.trim().replace(/[\x00-\x1F\x7F]/g, '');
 
@@ -191,7 +295,7 @@ export default {
                         let amount = 0;
                         if (e.amount !== undefined && e.amount !== null) {
                             amount = parseFloat(e.amount);
-                            if (isNaN(amount) || amount < -1e12 || amount > 1e12) {
+                            if (isNaN(amount) || amount < CONSTANTS.MIN_AMOUNT_VALUE || amount > CONSTANTS.MAX_AMOUNT_VALUE) {
                                 return new Response(JSON.stringify({ error: 'Invalid amount' }), { status: 400, headers: corsHeaders });
                             }
                         }
@@ -199,8 +303,8 @@ export default {
                         // 6. Reason Validation (max 5000 chars)
                         let reason = '';
                         if (e.reason !== undefined && e.reason !== null) {
-                            if (typeof e.reason !== 'string' || e.reason.length > 5000) {
-                                return new Response(JSON.stringify({ error: 'Reason too long (max 5000)' }), { status: 400, headers: corsHeaders });
+                            if (typeof e.reason !== 'string' || e.reason.length > CONSTANTS.MAX_REASON_LENGTH) {
+                                return new Response(JSON.stringify({ error: `Reason too long (max ${CONSTANTS.MAX_REASON_LENGTH})` }), { status: 400, headers: corsHeaders });
                             }
                             reason = e.reason;
                         }
@@ -214,7 +318,7 @@ export default {
                         let timestamp = Date.now();
                         if (e.timestamp !== undefined && e.timestamp !== null) {
                             timestamp = parseInt(e.timestamp);
-                            if (isNaN(timestamp) || timestamp < 0 || timestamp > Date.now() + 86400000) {
+                            if (isNaN(timestamp) || timestamp < 0 || timestamp > Date.now() + CONSTANTS.MAX_FUTURE_TIMESTAMP_MS) {
                                 timestamp = Date.now(); // Fallback to current time if invalid
                             }
                         }
@@ -231,8 +335,8 @@ export default {
                                 if (!/^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(e.imageData)) {
                                     return new Response(JSON.stringify({ error: 'Invalid image format' }), { status: 400, headers: corsHeaders });
                                 }
-                                if (e.imageData.length > 10 * 1024 * 1024) {
-                                    return new Response(JSON.stringify({ error: 'Image too large (max 10MB)' }), { status: 400, headers: corsHeaders });
+                                if (e.imageData.length > CONSTANTS.MAX_IMAGE_SIZE_BYTES) {
+                                    return new Response(JSON.stringify({ error: `Image too large (max ${CONSTANTS.MAX_IMAGE_SIZE_BYTES / (1024 * 1024)}MB)` }), { status: 400, headers: corsHeaders });
                                 }
                                 imageDataToSave = e.imageData;
                             }
@@ -325,21 +429,21 @@ export default {
 
         // Email format validation
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(email) || email.length > 255) {
+        if (!emailRegex.test(email) || email.length > CONSTANTS.MAX_EMAIL_LENGTH) {
             return new Response(JSON.stringify({ error: 'Invalid email format' }), { status: 400, headers });
         }
 
         // Username validation (Optional)
         if (username) {
-            const usernameRegex = /^[a-zA-Z0-9_]{3,30}$/;
+            const usernameRegex = new RegExp(`^[a-zA-Z0-9_]{${CONSTANTS.MIN_USERNAME_LENGTH},${CONSTANTS.MAX_USERNAME_LENGTH}}$`);
             if (!usernameRegex.test(username)) {
-                return new Response(JSON.stringify({ error: 'Username must be 3-30 chars, alphanumeric only' }), { status: 400, headers });
+                return new Response(JSON.stringify({ error: `Username must be ${CONSTANTS.MIN_USERNAME_LENGTH}-${CONSTANTS.MAX_USERNAME_LENGTH} chars, alphanumeric only` }), { status: 400, headers });
             }
         }
 
         // Password strength validation
-        if (password.length < 8 || password.length > 128) {
-            return new Response(JSON.stringify({ error: 'Password must be 8-128 characters' }), { status: 400, headers });
+        if (password.length < CONSTANTS.MIN_PASSWORD_LENGTH || password.length > CONSTANTS.MAX_PASSWORD_LENGTH) {
+            return new Response(JSON.stringify({ error: `Password must be ${CONSTANTS.MIN_PASSWORD_LENGTH}-${CONSTANTS.MAX_PASSWORD_LENGTH} characters` }), { status: 400, headers });
         }
 
         const passwordHash = await this.hashPassword(password);
@@ -390,8 +494,18 @@ export default {
         const hashToCompare = user ? user.password_hash : dummyHash;
         const isValid = await this.verifyPassword(password, hashToCompare);
 
+
         if (!user || !isValid) {
             return new Response(JSON.stringify({ error: 'Invalid credentials' }), { status: 401, headers });
+        }
+
+        // AUTO-UPGRADE: If user has legacy SHA-256 hash, upgrade to PBKDF2
+        if (isValid && !user.password_hash.startsWith('pbkdf2$')) {
+            const newHash = await this.hashPassword(password);
+            await env.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?')
+                .bind(newHash, user.id)
+                .run();
+            // Note: Silent upgrade, user doesn't need to know
         }
 
         // ENTERPRISE SECURITY: Force use of Environment Variable
@@ -403,8 +517,19 @@ export default {
         // Get current token version, default to 1 if null
         const tokenVersion = user.token_version || 1;
 
-        const token = await this.signToken({ id: user.id, email: user.email, username: user.username, v: tokenVersion }, secret);
-        return new Response(JSON.stringify({ success: true, token, user: { id: user.id, email: user.email, username: user.username } }), { headers });
+        // Generate BOTH access and refresh tokens
+        const tokenPayload = { id: user.id, email: user.email, username: user.username, v: tokenVersion };
+        const accessToken = await this.signToken(tokenPayload, secret, 'access');
+        const refreshToken = await this.signToken(tokenPayload, secret, 'refresh');
+
+        return new Response(JSON.stringify({
+            success: true,
+            token: accessToken,        // Keep 'token' for backward compatibility
+            accessToken: accessToken,  // Explicit access token
+            refreshToken: refreshToken, // New: refresh token
+            expiresIn: CONSTANTS.JWT_ACCESS_TOKEN_EXPIRE_SEC,
+            user: { id: user.id, email: user.email, username: user.username }
+        }), { headers });
     },
 
 
@@ -523,21 +648,153 @@ export default {
         } catch (e) { return null; }
     },
 
+
+    /**
+     * SECURE PASSWORD HASHING - PBKDF2-SHA256
+     * Replaces vulnerable SHA-256 with industry-standard password hashing
+     * Format: pbkdf2$iterations$salt$hash
+     * - 100,000 iterations (OWASP recommended minimum)
+     * - Random 16-byte salt per user
+     * - Resistant to rainbow tables, brute force, GPU cracking
+     */
     async hashPassword(password) {
-        const msgBuffer = new TextEncoder().encode(password);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-        return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+        // Generate random salt (16 bytes = 128 bits)
+        const saltBuffer = crypto.getRandomValues(new Uint8Array(16));
+        const salt = Array.from(saltBuffer).map(b => b.toString(16).padStart(2, '0')).join('');
+
+        // PBKDF2 parameters (OWASP recommendations)
+        const iterations = 100000; // Minimum recommended as of 2023
+        const keyLength = 256; // 256 bits = 32 bytes
+
+        // Derive key using PBKDF2
+        const encoder = new TextEncoder();
+        const passwordBuffer = encoder.encode(password);
+        const saltBytes = encoder.encode(salt);
+
+        const keyMaterial = await crypto.subtle.importKey(
+            'raw',
+            passwordBuffer,
+            { name: 'PBKDF2' },
+            false,
+            ['deriveBits']
+        );
+
+        const derivedBits = await crypto.subtle.deriveBits(
+            {
+                name: 'PBKDF2',
+                salt: saltBytes,
+                iterations: iterations,
+                hash: 'SHA-256'
+            },
+            keyMaterial,
+            keyLength
+        );
+
+        const hashArray = Array.from(new Uint8Array(derivedBits));
+        const hash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+        // Format: pbkdf2$iterations$salt$hash
+        return `pbkdf2$${iterations}$${salt}$${hash}`;
     },
 
-    async verifyPassword(password, hash) { return (await this.hashPassword(password)) === hash; },
+    /**
+     * VERIFY PASSWORD with backward compatibility
+     * Supports both new PBKDF2 hashes and legacy SHA-256 hashes
+     * Legacy hashes will be auto-upgraded on next successful login
+     */
+    async verifyPassword(password, storedHash) {
+        // Check if it's a PBKDF2 hash (new format)
+        if (storedHash.startsWith('pbkdf2$')) {
+            const parts = storedHash.split('$');
+            if (parts.length !== 4) return false;
 
-    async signToken(payload, secret) {
+            const [, iterations, salt, hash] = parts;
+
+            // Re-hash the password with the stored salt and iterations
+            const encoder = new TextEncoder();
+            const passwordBuffer = encoder.encode(password);
+            const saltBytes = encoder.encode(salt);
+
+            const keyMaterial = await crypto.subtle.importKey(
+                'raw',
+                passwordBuffer,
+                { name: 'PBKDF2' },
+                false,
+                ['deriveBits']
+            );
+
+            const derivedBits = await crypto.subtle.deriveBits(
+                {
+                    name: 'PBKDF2',
+                    salt: saltBytes,
+                    iterations: parseInt(iterations),
+                    hash: 'SHA-256'
+                },
+                keyMaterial,
+                256
+            );
+
+            const hashArray = Array.from(new Uint8Array(derivedBits));
+            const computedHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+            // Constant-time comparison to prevent timing attacks
+            return this.constantTimeCompare(computedHash, hash);
+        }
+
+        // LEGACY: Support old SHA-256 hashes (for migration period)
+        // This allows existing users to still log in
+        // Their password will be upgraded to PBKDF2 on next login (handled in login endpoint)
+        const msgBuffer = new TextEncoder().encode(password);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+        const computedHash = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+        return this.constantTimeCompare(computedHash, storedHash);
+    },
+
+    /**
+     * Constant-time string comparison to prevent timing attacks
+     */
+    constantTimeCompare(a, b) {
+        if (a.length !== b.length) return false;
+        let mismatch = 0;
+        for (let i = 0; i < a.length; i++) {
+            mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+        }
+        return mismatch === 0;
+    },
+
+
+    /**
+     * SIGN JWT TOKEN
+     * @param {Object} payload - Data to include in token
+     * @param {string} secret - Secret key for signing
+     * @param {string} tokenType - 'access' or 'refresh'
+     * 
+     * Access tokens: 1 hour (3600 seconds)
+     * Refresh tokens: 7 days (604800 seconds)
+     */
+    async signToken(payload, secret, tokenType = 'access') {
         const header = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" }));
-        const body = btoa(JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + 7776000 }));
+
+        // SECURITY FIX: Reduced expiration times
+        const expirationTimes = {
+            access: 3600,        // 1 hour (was 7776000 = 90 days!)
+            refresh: 604800      // 7 days for refresh tokens
+        };
+
+        const expiresIn = expirationTimes[tokenType] || expirationTimes.access;
+        const exp = Math.floor(Date.now() / 1000) + expiresIn;
+
+        const body = btoa(JSON.stringify({
+            ...payload,
+            exp,
+            type: tokenType // Include token type in payload
+        }));
+
         const unsigned = `${header}.${body}`;
         const signature = await this.hmacSha256(unsigned, secret);
         return `${unsigned}.${signature}`;
     },
+
 
     async verifyToken(token, secret) {
         const [header, body, signature] = token.split('.');
