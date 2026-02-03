@@ -66,19 +66,21 @@
         <form id="registerForm">
             <div class="form-group">
                 <label class="form-label" for="email">Email</label>
-                <input type="email" id="email" class="form-input" placeholder="nama@email.com" required>
+                <input type="email" id="email" class="form-input" placeholder="nama@email.com" autocomplete="email"
+                    required>
             </div>
 
             <div class="form-group">
                 <label class="form-label" for="username">Username</label>
                 <input type="text" id="username" class="form-input" placeholder="Masukkan username"
-                    pattern="[a-zA-Z0-9_]{3,30}" title="3-30 karakter, huruf, angka, underscore" required>
+                    pattern="[a-zA-Z0-9_]{3,30}" title="3-30 karakter, huruf, angka, underscore" autocomplete="username"
+                    required>
             </div>
 
             <div class="form-group">
                 <label class="form-label" for="password">Password</label>
                 <input type="password" id="password" class="form-input" placeholder="Minimal 8 karakter" minlength="8"
-                    required>
+                    autocomplete="new-password" required>
             </div>
 
 
