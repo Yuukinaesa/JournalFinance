@@ -1,5 +1,5 @@
 # 🧪 QA TEST SCENARIOS - JOURNALFINANCE
-**Version**: 1.0 (Post-Audit 2.4.0)  
+**Version**: 2.0 (Strict Standards)  
 **Target**: Production API & Logic  
 **Tools**: Automated Script (`tests/qa_comprehensive.test.mjs`)
 
@@ -20,7 +20,7 @@
 - **Expectation**: HTTP 200.
     - `accessToken` (1h expiry)
     - `refreshToken` (7d expiry)
-    - `user` object
+    - `user` object (Must include EMAIL & USERNAME)
 - **Validation**:
     - Wrong password → HTTP 401
     - Rate limiting → Block after 100 attempts
@@ -49,7 +49,7 @@
     - Max Title (201 chars) → HTTP 400
     - Max Amount (1e13) → HTTP 400
     - Invalid Type ("random") → HTTP 400
-    - Future Timestamp (>24h) → Auto-corrected handled
+    - Invalid Date Format (YYYY/MM/DD) -> HTTP 400
 - **Expectation**: HTTP 200, Entry saved.
 
 ### 2.2 Read Entries
@@ -64,6 +64,7 @@
 ### 2.4 Update Entry
 - **Action**: POST `/api/entries` with existing ID.
 - **Expectation**: HTTP 200, data updated.
+- **Validation**: Verify update via subsequent GET.
 
 ### 2.5 Delete Entry
 - **Action**: DELETE `/api/entries/:id`.
@@ -72,26 +73,33 @@
 
 ---
 
-## 🟢 SCENARIO 3: SECURITY & LIMITS
+## 🟢 SCENARIO 3: DATA SYNC (OFFLINE SUPPORT)
 
-### 3.1 Rate Limiting (DoS Protection)
+### 3.1 Bulk Sync
+- **Input**: Array of entries to `/api/data/sync`.
+- **Expectation**: HTTP 200, processed (Upsert logic).
+- **Validation**: Check DB count matches, merged data is correct.
+
+### 3.2 Cloud Wipe (Reset)
+- **Action**: DELETE `/api/data/reset`.
+- **Expectation**: HTTP 200, user data cleared.
+
+---
+
+## 🟢 SCENARIO 4: SECURITY & LIMITS
+
+### 4.1 Rate Limiting (DoS Protection)
 - **Action**: Spam 105 requests in < 1 minute.
 - **Expectation**:
     - Req 1-100: HTTP 200/400
     - Req 101+: HTTP 429 Too Many Requests
 
-### 3.2 CORS Check
-- **Action**: Send request with `Origin: https://evil.com`.
-- **Expectation**: Response header `Access-Control-Allow-Origin` should NOT match evil.com (or default to allow if strict mode not set, but our code whitelists specific domains).
-
----
-
-## 🟢 SCENARIO 4: DATA SYNC (OFFLINE SUPPORT)
-
-### 4.1 Bulk Sync
-- **Input**: Array of 50+ entries to `/api/data/sync`.
-- **Expectation**: HTTP 200, all processed.
-- **Validation**: Check DB count matches.
+### 4.2 CORS & Headers
+- **Action**: OPTION/GET requests.
+- **Expectation**:
+    - `Access-Control-Allow-Origin`: Strict (e.g. `https://qa.journalfinance.com` or specific)
+    - `Cache-Control`: `no-store` for static assets (if validated)
+    - `X-Frame-Options`: `DENY`
 
 ---
 

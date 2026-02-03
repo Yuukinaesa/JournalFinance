@@ -7,9 +7,11 @@ const WORKER_URL = 'https://catatan.arfan-hidayat-priyantono.workers.dev';
 
 const API_CONFIG = {
     // Logic Dual Support:
-    // 1. Jika dibuka dari Cloudflare (workers.dev) -> Gunakan Relative Path (lebih cepat)
-    // 2. Jika dibuka dari GitHub Pages / Localhost -> Gunakan Absolute URL
-    BASE_URL: window.location.hostname.includes('workers.dev') ? '' : WORKER_URL,
+    // 1. Cloudflare / Production -> Relative Path
+    // 2. Localhost -> Local Backend (8787)
+    BASE_URL: (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+        ? 'http://127.0.0.1:8787'
+        : (window.location.hostname.includes('workers.dev') ? '' : WORKER_URL),
     TIMEOUT: 30000 // 30 seconds timeout for all requests
 };
 
