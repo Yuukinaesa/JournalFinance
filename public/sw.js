@@ -8,7 +8,7 @@
  * ======================================================================
  */
 
-const CACHE_VERSION = 'journal-finance-v2.2.0';
+const CACHE_VERSION = 'journal-finance-v2.3.0-force-fresh';
 const CACHE_NAME = `${CACHE_VERSION}-static`;
 const CACHE_DYNAMIC = `${CACHE_VERSION}-dynamic`;
 const CACHE_IMAGES = `${CACHE_VERSION}-images`;
@@ -122,7 +122,11 @@ self.addEventListener('fetch', (event) => {
  */
 async function networkFirstStrategy(request, cacheName, maxSize) {
     try {
-        const networkResponse = await fetch(request);
+        // FORCE NETWORK: Ignore browser cache, go straight to server
+        // This ensures we get the latest file (which now has no-cache headers)
+        const networkResponse = await fetch(request, {
+            cache: 'reload' // Force fetch from network
+        });
 
         // Cache successful responses
         if (networkResponse && networkResponse.status === 200) {

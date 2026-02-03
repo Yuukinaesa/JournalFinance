@@ -20,6 +20,11 @@ async function handleRegister(e) {
     const username = document.getElementById('username').value;
     const password = document.getElementById('password').value;
 
+    if (!username) {
+        AuthUI.showToast('Username harus diisi');
+        return;
+    }
+
     if (password.length < 8) {
         AuthUI.showToast('Password minimal 8 karakter');
         return;

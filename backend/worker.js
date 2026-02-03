@@ -405,7 +405,18 @@ export default {
                     if (notFound.status === 200) return notFound;
                 }
 
-                return asset;
+                // CACHE BUSTING: Force browser to revalidate static assets
+                // This ensures users always get the latest version without manual refresh
+                const newHeaders = new Headers(asset.headers);
+                newHeaders.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+                newHeaders.set('Pragma', 'no-cache');
+                newHeaders.set('Expires', '0');
+
+                return new Response(asset.body, {
+                    status: asset.status,
+                    statusText: asset.statusText,
+                    headers: newHeaders
+                });
 
             } catch (e) {
                 // Fallback if Asset binding fails
@@ -423,8 +434,8 @@ export default {
         const { email, username, password } = await request.json();
 
         // INPUT VALIDATION - SECURITY CRITICAL
-        if (!email || !password) {
-            return new Response(JSON.stringify({ error: 'Email and Password required' }), { status: 400, headers });
+        if (!email || !password || !username) {
+            return new Response(JSON.stringify({ error: 'Email, Username, and Password required' }), { status: 400, headers });
         }
 
         // Email format validation
@@ -433,12 +444,10 @@ export default {
             return new Response(JSON.stringify({ error: 'Invalid email format' }), { status: 400, headers });
         }
 
-        // Username validation (Optional)
-        if (username) {
-            const usernameRegex = new RegExp(`^[a-zA-Z0-9_]{${CONSTANTS.MIN_USERNAME_LENGTH},${CONSTANTS.MAX_USERNAME_LENGTH}}$`);
-            if (!usernameRegex.test(username)) {
-                return new Response(JSON.stringify({ error: `Username must be ${CONSTANTS.MIN_USERNAME_LENGTH}-${CONSTANTS.MAX_USERNAME_LENGTH} chars, alphanumeric only` }), { status: 400, headers });
-            }
+        // Username validation (Mandatory)
+        const usernameRegex = new RegExp(`^[a-zA-Z0-9_]{${CONSTANTS.MIN_USERNAME_LENGTH},${CONSTANTS.MAX_USERNAME_LENGTH}}$`);
+        if (!usernameRegex.test(username)) {
+            return new Response(JSON.stringify({ error: `Username must be ${CONSTANTS.MIN_USERNAME_LENGTH}-${CONSTANTS.MAX_USERNAME_LENGTH} chars, alphanumeric only` }), { status: 400, headers });
         }
 
         // Password strength validation
@@ -448,16 +457,14 @@ export default {
 
         const passwordHash = await this.hashPassword(password);
         try {
-            // Check if username already exists if provided
-            if (username) {
-                const existingUser = await env.DB.prepare('SELECT id FROM users WHERE username = ?').bind(username).first();
-                if (existingUser) {
-                    return new Response(JSON.stringify({ error: 'Username already taken' }), { status: 400, headers });
-                }
+            // Check if username already exists
+            const existingUser = await env.DB.prepare('SELECT id FROM users WHERE username = ?').bind(username).first();
+            if (existingUser) {
+                return new Response(JSON.stringify({ error: 'Username already taken' }), { status: 400, headers });
             }
 
             const result = await env.DB.prepare('INSERT INTO users (email, username, password_hash) VALUES (?, ?, ?)')
-                .bind(email.toLowerCase().trim(), username || null, passwordHash)
+                .bind(email.toLowerCase().trim(), username, passwordHash)
                 .run();
 
             return new Response(JSON.stringify({ success: true, userId: result.meta.last_row_id }), { headers });

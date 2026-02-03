@@ -7,6 +7,12 @@
     <!-- SECURITY: Strict CSP - No unsafe-inline scripts -->
     <meta http-equiv="Content-Security-Policy"
         content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://catatan.arfan-hidayat-priyantono.workers.dev; object-src 'none'; base-uri 'self';">
+
+    <!-- FORCE NO CACHE -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+
     <title>JournalFinance - Catatan Harian Investasi & Keuangan</title>
     <meta name="description"
         content="Aplikasi jurnal keuangan pribadi yang modern, aman, dan offline-ready. Catat saham, kripto, dan peristiwa penting Anda.">
@@ -47,10 +53,10 @@
 
     <!-- Logic Layers -->
     <!-- Logic Layers -->
-    <script src="./OptimizedDB.js?v=3"></script>
-    <script src="./auth.js?v=4"></script>
-    <script src="./ConnectionMonitor.js?v=1"></script>
-    <script src="./app.js?v=4" defer></script>
+    <script src="./OptimizedDB.js?v=999"></script>
+    <script src="./auth.js?v=999"></script>
+    <script src="./ConnectionMonitor.js?v=999"></script>
+    <script src="./app.js?v=999" defer></script>
     <!-- Service Worker is managed by app.js -->
 
     <link rel="stylesheet" href="index.css">
