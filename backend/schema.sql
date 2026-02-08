@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT UNIQUE, -- Username opsional tapi unik jika ada
     password_hash TEXT NOT NULL,
     token_version INTEGER DEFAULT 1,
+    preferences TEXT, -- JSON string for user preferences (theme, etc.)
     created_at INTEGER DEFAULT (strftime('%s', 'now'))
 );
 

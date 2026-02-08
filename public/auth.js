@@ -102,6 +102,7 @@ class Auth {
 
             // Save Session
             localStorage.setItem('auth_token', data.token);
+            localStorage.setItem('auth_refresh_token', data.refreshToken);
             localStorage.setItem('auth_user', JSON.stringify(data.user));
 
             return data;
@@ -112,9 +113,9 @@ class Auth {
     }
 
 
-
     static logout() {
         localStorage.removeItem('auth_token');
+        localStorage.removeItem('auth_refresh_token');
         localStorage.removeItem('auth_user');
         // Redirect handled by caller or window location reload
     }
@@ -146,15 +147,73 @@ class Auth {
         };
     }
 
+    // --- REFRESH TOKEN LOGIC ---
+
+    static getRefreshToken() {
+        return localStorage.getItem('auth_refresh_token');
+    }
+
+    static async refreshSession() {
+        const refreshToken = this.getRefreshToken();
+        if (!refreshToken) throw new Error('No refresh token available');
+
+        try {
+            const res = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/api/auth/refresh`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ refreshToken })
+            });
+
+            if (!res.ok) throw new Error('Refresh failed');
+
+            const data = await res.json();
+            localStorage.setItem('auth_token', data.token); // Update Access Token
+            // If new refresh token is provided, update it too (rotation)
+            if (data.refreshToken) localStorage.setItem('auth_refresh_token', data.refreshToken);
+
+            return data.token;
+        } catch (e) {
+            console.error('Session refresh failed:', e);
+            this.logout();
+            throw e;
+        }
+    }
+
+    static async ensureToken() {
+        const token = this.getToken();
+        if (!token) return; // Let downstream handle missing token (401)
+
+        if (this.isTokenExpired(token)) {
+            // Token expired, try refresh
+            try {
+                // If we have a refresh token, try to use it
+                if (this.getRefreshToken()) {
+                    await this.refreshSession();
+                } else {
+                    // No refresh token, just expire
+                    // this.logout(); // Optional: let 401 handle it
+                }
+            } catch (e) {
+                // Refresh failed
+                this.logout();
+                window.location.replace('login.html');
+                throw new Error('Session expired');
+            }
+        }
+    }
+
     // --- FULL CLOUD API ---
 
     static async fetchEntries() {
+        await this.ensureToken();
         if (!this.isAuthenticated()) return [];
         try {
             const res = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/api/entries`, {
                 headers: this.getHeaders()
             });
             if (res.status === 401) {
+                // Retry once if 401? Or assume ensureToken handled it.
+                // If 401 happens despite ensureToken, it means refresh token also dead
                 this.logout();
                 window.location.replace('login.html');
                 return [];
@@ -169,6 +228,7 @@ class Auth {
     }
 
     static async fetchImage(id) {
+        await this.ensureToken();
         if (!this.isAuthenticated()) return null;
         try {
             const res = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/api/entries/${id}/image`, {
@@ -183,6 +243,7 @@ class Auth {
     }
 
     static async saveEntry(entry) {
+        await this.ensureToken();
         if (!this.isAuthenticated()) throw new Error('Unauthorized');
         try {
             const res = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/api/entries`, {
@@ -209,6 +270,7 @@ class Auth {
     }
 
     static async deleteEntry(id) {
+        await this.ensureToken();
         if (!this.isAuthenticated()) throw new Error('Unauthorized');
         try {
             const res = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/api/entries/${id}`, {
@@ -230,7 +292,35 @@ class Auth {
         }
     }
 
+    // Helper for updatePreferences (added previously, needs ensureToken)
+    static async updatePreferences(preferences) {
+        await this.ensureToken();
+        if (!this.isAuthenticated()) return;
+        try {
+            const res = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/api/user/preferences`, {
+                method: 'PUT',
+                headers: this.getHeaders(),
+                body: JSON.stringify({ preferences })
+            });
+
+            if (!res.ok) throw new Error('Failed to update preferences');
+            const json = await res.json();
+
+            // Update local user object
+            const user = this.getUser();
+            if (user) {
+                user.preferences = json.preferences;
+                localStorage.setItem('auth_user', JSON.stringify(user));
+            }
+            return json.preferences;
+        } catch (e) {
+            console.error('Update Preferences Error:', e);
+            throw e;
+        }
+    }
+
     static async syncWithCloud(entries) {
+        await this.ensureToken();
         if (!this.isAuthenticated()) return [];
         try {
             const res = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/api/data/sync`, {
@@ -255,6 +345,7 @@ class Auth {
     }
 
     static async resetCloud() {
+        await this.ensureToken();
         if (!this.isAuthenticated()) return;
         try {
             const res = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/api/data/reset`, {
@@ -276,6 +367,7 @@ class Auth {
         }
     }
 }
+
 
 // Global expose
 window.Auth = Auth;

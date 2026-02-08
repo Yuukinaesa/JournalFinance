@@ -758,9 +758,20 @@ window.app = {
     },
 
     initTheme() {
-        const savedTheme = localStorage.getItem('theme') || 'light';
+        let savedTheme = localStorage.getItem('theme');
+        const user = Auth.getUser();
+
+        // Cloud Preference Priority
+        if (user && user.preferences && user.preferences.theme) {
+            savedTheme = user.preferences.theme;
+            localStorage.setItem('theme', savedTheme);
+        }
+
+        savedTheme = savedTheme || 'light';
         document.body.setAttribute('data-theme', savedTheme);
-        this.updateThemeIcon(savedTheme);
+        if (document.getElementById('themeToggle')) {
+            this.updateThemeIcon(savedTheme);
+        }
     },
 
     // --- Event Listeners (CSP Compliant) ---
@@ -1512,6 +1523,11 @@ window.app = {
         body.setAttribute('data-theme', next);
         localStorage.setItem('theme', next);
         this.updateThemeIcon(next);
+
+        // Sync to Cloud
+        Auth.updatePreferences({ theme: next }).catch(err => {
+            console.warn('Failed to sync theme preference:', err);
+        });
     },
 
     updateThemeIcon(theme) {

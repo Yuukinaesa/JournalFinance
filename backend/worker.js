@@ -16,7 +16,7 @@ const CONSTANTS = {
 
     // JWT Token Expiration
     JWT_ACCESS_TOKEN_EXPIRE_SEC: 3600,      // 1 hour
-    JWT_REFRESH_TOKEN_EXPIRE_SEC: 604800,   // 7 days
+    JWT_REFRESH_TOKEN_EXPIRE_SEC: 7776000,  // 90 days (3 months)
 
     // Password Security
     PBKDF2_ITERATIONS: 100000,              // OWASP minimum
@@ -214,9 +214,30 @@ export default {
                     const user = await this.verifyAuth(request, env);
                     if (!user) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: corsHeaders });
 
-                    // Increment token version
                     await env.DB.prepare('UPDATE users SET token_version = IFNULL(token_version, 1) + 1 WHERE id = ?').bind(user.id).run();
                     return new Response(JSON.stringify({ success: true, message: 'All sessions invalidated' }), { headers: corsHeaders });
+                }
+
+                // User Preferences
+                if (path === '/api/user/preferences' && method === 'PUT') {
+                    const user = await this.verifyAuth(request, env);
+                    if (!user) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: corsHeaders });
+
+                    try {
+                        const { preferences } = await request.json();
+                        if (!preferences) return new Response(JSON.stringify({ error: 'Preferences required' }), { status: 400, headers: corsHeaders });
+
+                        // Ensure it's a valid JSON string or object
+                        const prefString = typeof preferences === 'string' ? preferences : JSON.stringify(preferences);
+                        
+                        await env.DB.prepare('UPDATE users SET preferences = ? WHERE id = ?')
+                            .bind(prefString, user.id)
+                            .run();
+
+                        return new Response(JSON.stringify({ success: true, preferences: JSON.parse(prefString) }), { headers: corsHeaders });
+                    } catch (e) {
+                         return new Response(JSON.stringify({ error: 'Invalid data' }), { status: 400, headers: corsHeaders });
+                    }
                 }
 
                 // Protected Data Routes
@@ -535,7 +556,12 @@ export default {
             accessToken: accessToken,  // Explicit access token
             refreshToken: refreshToken, // New: refresh token
             expiresIn: CONSTANTS.JWT_ACCESS_TOKEN_EXPIRE_SEC,
-            user: { id: user.id, email: user.email, username: user.username }
+            user: { 
+                id: user.id, 
+                email: user.email, 
+                username: user.username,
+                preferences: user.preferences ? JSON.parse(user.preferences) : null
+            }
         }), { headers });
     },
 
@@ -784,8 +810,8 @@ export default {
 
         // SECURITY FIX: Reduced expiration times
         const expirationTimes = {
-            access: 3600,        // 1 hour (was 7776000 = 90 days!)
-            refresh: 604800      // 7 days for refresh tokens
+            access: CONSTANTS.JWT_ACCESS_TOKEN_EXPIRE_SEC,
+            refresh: CONSTANTS.JWT_REFRESH_TOKEN_EXPIRE_SEC
         };
 
         const expiresIn = expirationTimes[tokenType] || expirationTimes.access;
