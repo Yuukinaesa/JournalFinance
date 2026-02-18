@@ -51,6 +51,7 @@ class Auth {
     }
 
     static isTokenExpired(token) {
+        // Session duration is determined by the JWT 'exp' claim (configured as 90 days in backend)
         try {
             const base64Url = token.split('.')[1];
             const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');

@@ -15,7 +15,7 @@ const CONSTANTS = {
     RATE_LIMIT_EVICTION_PERCENT: 0.2,       // Evict 20% when full
 
     // JWT Token Expiration
-    JWT_ACCESS_TOKEN_EXPIRE_SEC: 3600,      // 1 hour
+    JWT_ACCESS_TOKEN_EXPIRE_SEC: 7776000,   // 90 days (3 months)
     JWT_REFRESH_TOKEN_EXPIRE_SEC: 7776000,  // 90 days (3 months)
 
     // Password Security
@@ -802,8 +802,8 @@ export default {
      * @param {string} secret - Secret key for signing
      * @param {string} tokenType - 'access' or 'refresh'
      * 
-     * Access tokens: 1 hour (3600 seconds)
-     * Refresh tokens: 7 days (604800 seconds)
+     * Access tokens: 90 days (7776000 seconds)
+     * Refresh tokens: 90 days (7776000 seconds)
      */
     async signToken(payload, secret, tokenType = 'access') {
         const header = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" }));
