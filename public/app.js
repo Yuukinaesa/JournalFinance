@@ -1030,10 +1030,18 @@ window.app = {
     // --- CRUD ---
 
     async saveEntry() {
-        // ⚠️ GUARD: Prevent double-submit (rapid clicks / double-click)
+        // ⚠️ GUARD 1: Flag-based guard against concurrent calls
         if (this.isSaving) {
             console.warn('Save already in progress, ignoring duplicate call');
             return;
+        }
+
+        // ⚠️ GUARD 2: Immediately disable submit button to prevent any click-through
+        const submitBtn = document.querySelector('#entryForm button[type="submit"]');
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.style.opacity = '0.6';
+            submitBtn.style.pointerEvents = 'none';
         }
 
         // ⚠️ CONNECTION CHECK - Prevent data loss
@@ -1043,6 +1051,7 @@ window.app = {
                 'Koneksi internet diperlukan untuk menyimpan data. ' +
                 'Data Anda TIDAK akan hilang - tunggu koneksi pulih lalu coba lagi.'
             );
+            this._resetSaveButton(submitBtn);
             return;
         }
 
@@ -1061,6 +1070,7 @@ window.app = {
 
         if (!date || !title) {
             this.showToast('Mohon isi Tanggal dan Judul');
+            this._resetSaveButton(submitBtn);
             return;
         }
 
@@ -1077,6 +1087,7 @@ window.app = {
                 console.error(e);
                 this.showToast('Gagal memproses gambar: ' + e.message);
                 this.isSaving = false;
+                this._resetSaveButton(submitBtn);
                 return;
             }
         } else if (id && !this.pendingImageClear) {
@@ -1087,7 +1098,6 @@ window.app = {
         }
 
         // BUG FIX: Use crypto.randomUUID() instead of Date.now() to prevent ID collisions
-        // Date.now() only has millisecond precision - rapid saves could produce duplicate IDs
         const entry = {
             id: id || crypto.randomUUID(),
             date,
@@ -1102,11 +1112,6 @@ window.app = {
         };
 
         try {
-            // Full Cloud Save
-            // Logic:
-            // - If new image (imageData set) -> Send it
-            // - If pending clear (pendingImageClear) -> Send null
-            // - If neither -> Omit imageData from payload (undefined) to PRESERVE existing
             const payload = { ...entry };
 
             if (imageData) {
@@ -1115,26 +1120,38 @@ window.app = {
                 payload.imageData = null;
             }
 
+            // Save to Cloud (source of truth)
             await Auth.saveEntry(payload);
 
-            if (id) {
-                const index = this.data.findIndex(item => String(item.id) === String(id));
-                if (index > -1) {
-                    this.data[index] = { ...this.data[index], ...entry }; // Update local state for immediate UI
-                    // If image changed, we might need to update the UI specifically or reload
-                    if (hasImage) this.data[index].hasImage = true;
+            // BUG FIX: Instead of manually pushing to this.data (which causes desync),
+            // fetch fresh data from cloud to guarantee consistency.
+            // This eliminates ALL possible duplication scenarios.
+            try {
+                const freshData = await Auth.fetchEntries();
+                if (Array.isArray(freshData)) {
+                    this.data = freshData;
+                    // Also update local cache
+                    await this.db.bulkPut('entries', this.data);
                 }
-                this.showToast('✅ Catatan diperbarui (Cloud)');
-            } else {
-                // BUG FIX: Check for duplicate before unshift to prevent UI duplication
-                const alreadyExists = this.data.some(item => String(item.id) === String(entry.id));
-                if (!alreadyExists) {
-                    this.data.unshift(entry);
+            } catch (fetchErr) {
+                // If fresh fetch fails, do optimistic update as fallback
+                console.warn('Post-save sync failed, using optimistic update:', fetchErr);
+                if (id) {
+                    const index = this.data.findIndex(item => String(item.id) === String(id));
+                    if (index > -1) {
+                        this.data[index] = { ...this.data[index], ...entry };
+                        if (hasImage) this.data[index].hasImage = true;
+                    }
+                } else {
+                    const alreadyExists = this.data.some(item => String(item.id) === String(entry.id));
+                    if (!alreadyExists) {
+                        this.data.unshift(entry);
+                    }
                 }
-                this.showToast('✅ Catatan ditambahkan (Cloud)');
             }
 
             this.pendingImageClear = false;
+            this.showToast(id ? '✅ Catatan diperbarui (Cloud)' : '✅ Catatan ditambahkan (Cloud)');
             this.renderList();
             this.closeModal();
 
@@ -1143,6 +1160,16 @@ window.app = {
             this.showToast('❌ Error menyimpan ke Cloud: ' + error.message);
         } finally {
             this.isSaving = false;
+            this._resetSaveButton(submitBtn);
+        }
+    },
+
+    // Helper to reset save button state
+    _resetSaveButton(btn) {
+        if (btn) {
+            btn.disabled = false;
+            btn.style.opacity = '';
+            btn.style.pointerEvents = '';
         }
     },
 
