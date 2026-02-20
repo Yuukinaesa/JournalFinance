@@ -1734,9 +1734,10 @@ window.app = {
 
             if (isMobile) {
                 this.showToast('🚀 Mengalihkan ke WhatsApp...');
-                setTimeout(() => {
-                    window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, '_blank');
-                }, 800);
+                // BUG FIX: Safari/Chrome will block window.open inside a setTimeout 
+                // because it loses the "UI Event" trusted context. 
+                // It must be called synchronously inside this handler.
+                window.location.href = `https://wa.me/?text=${encodeURIComponent(txt)}`;
             }
 
         } catch (err) {
@@ -1746,7 +1747,13 @@ window.app = {
     },
 
     downloadTxt() {
-        const txt = this.data.map(i => `${i.date} [${i.type}]: ${i.title}\nKet: ${i.reason}\n----------------`).join('\n');
+        const dataToExport = this.getFilteredData();
+        if (!dataToExport || dataToExport.length === 0) {
+            this.showToast('⚠️ Tidak ada data untuk diunduh');
+            return;
+        }
+
+        const txt = dataToExport.map(i => `${i.date} [${i.type}]: ${i.title}\nKet: ${i.reason}\n----------------`).join('\n');
         const blob = new Blob([txt], { type: 'text/plain' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
