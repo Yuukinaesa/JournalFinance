@@ -56,6 +56,7 @@ window.app = {
     worker: null,
     deferredPrompt: null, // Will be set from global
     isSyncing: false,
+    isSaving: false, // Guard against double-submit / rapid clicks
 
 
     async init() {
@@ -169,7 +170,7 @@ window.app = {
                 userDiv.style.cssText = 'position: absolute; top: 1rem; right: 1rem; font-size: 0.85rem; color: var(--text-muted); background: var(--bg-card); padding: 4px 12px; border-radius: 20px; border: 1px solid var(--border-color); display: flex; align-items: center; gap: 8px; z-index: 50;';
                 userDiv.innerHTML = `
                         <div style="width: 8px; height: 8px; background: #10b981; border-radius: 50%;"></div>
-                        <span style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${user.username || user.email}</span>
+                        <span style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${this.escapeHtml(user.username || user.email)}</span>
                         <a href="#" id="btnLogoutAll" style="color: var(--text-muted); margin-left: 12px; text-decoration: none; font-size: 0.8rem;" title="Keluar semua perangkat">Keluar Semua</a>
                         <a href="#" id="btnLogout" style="color: #ef4444; margin-left: 8px; text-decoration: none; font-weight: 600;">Keluar</a>
                      `;
@@ -478,7 +479,7 @@ window.app = {
                 // Legacy Array Format (V1)
                 json.forEach(item => {
                     entriesToRestore.push({
-                        id: String(item.id || Date.now() + Math.random()),
+                        id: String(item.id || crypto.randomUUID()),
                         date: String(item.date || new Date().toISOString().slice(0, 10)),
                         title: String(item.title || 'Untitled'),
                         type: String(item.type || 'lainnya'),
@@ -582,7 +583,7 @@ window.app = {
                         try {
                             // Format check
                             const newEntry = {
-                                id: String(entry.id || Date.now() + i),
+                                id: String(entry.id || crypto.randomUUID()),
                                 date: entry.date,
                                 type: entry.type || 'lainnya',
                                 amount: parseFloat(entry.amount) || 0,
@@ -664,6 +665,7 @@ window.app = {
 
     async performSync() {
         if (this.isSyncing) return;
+        if (this.isSaving) return; // Don't sync while a save operation is in progress
         if (!Auth.isAuthenticated()) return;
 
         this.isSyncing = true;
@@ -1028,6 +1030,12 @@ window.app = {
     // --- CRUD ---
 
     async saveEntry() {
+        // ⚠️ GUARD: Prevent double-submit (rapid clicks / double-click)
+        if (this.isSaving) {
+            console.warn('Save already in progress, ignoring duplicate call');
+            return;
+        }
+
         // ⚠️ CONNECTION CHECK - Prevent data loss
         if (!this.canPerformWriteOperation()) {
             this.showAlert(
@@ -1056,6 +1064,9 @@ window.app = {
             return;
         }
 
+        // Set saving flag AFTER validation passes
+        this.isSaving = true;
+
         if (fileInput.files.length > 0) {
             const file = fileInput.files[0];
             try {
@@ -1065,6 +1076,7 @@ window.app = {
             } catch (e) {
                 console.error(e);
                 this.showToast('Gagal memproses gambar: ' + e.message);
+                this.isSaving = false;
                 return;
             }
         } else if (id && !this.pendingImageClear) {
@@ -1074,8 +1086,10 @@ window.app = {
             }
         }
 
+        // BUG FIX: Use crypto.randomUUID() instead of Date.now() to prevent ID collisions
+        // Date.now() only has millisecond precision - rapid saves could produce duplicate IDs
         const entry = {
-            id: id || Date.now().toString(),
+            id: id || crypto.randomUUID(),
             date,
             type,
             amount,
@@ -1112,7 +1126,11 @@ window.app = {
                 }
                 this.showToast('✅ Catatan diperbarui (Cloud)');
             } else {
-                this.data.unshift(entry);
+                // BUG FIX: Check for duplicate before unshift to prevent UI duplication
+                const alreadyExists = this.data.some(item => String(item.id) === String(entry.id));
+                if (!alreadyExists) {
+                    this.data.unshift(entry);
+                }
                 this.showToast('✅ Catatan ditambahkan (Cloud)');
             }
 
@@ -1123,6 +1141,8 @@ window.app = {
         } catch (error) {
             console.error('Save entry error:', error);
             this.showToast('❌ Error menyimpan ke Cloud: ' + error.message);
+        } finally {
+            this.isSaving = false;
         }
     },
 
@@ -1282,8 +1302,10 @@ window.app = {
     },
 
     async toggleHighlight(id) {
+        if (this.isSaving) return; // Prevent concurrent modification
         const entry = this.data.find(i => String(i.id) === String(id));
         if (!entry) return;
+        this.isSaving = true;
         try {
             entry.highlight = !entry.highlight;
             // Optimistic update
@@ -1294,12 +1316,16 @@ window.app = {
             entry.highlight = !entry.highlight; // Revert
             this.renderList();
             this.showToast('Gagal update highlight');
+        } finally {
+            this.isSaving = false;
         }
     },
 
     async togglePin(id) {
+        if (this.isSaving) return; // Prevent concurrent modification
         const entry = this.data.find(i => String(i.id) === String(id));
         if (!entry) return;
+        this.isSaving = true;
         try {
             entry.pinned = !entry.pinned;
             // Optimistic update
@@ -1310,6 +1336,8 @@ window.app = {
             entry.pinned = !entry.pinned; // Revert
             this.renderList();
             this.showToast('Gagal update pin');
+        } finally {
+            this.isSaving = false;
         }
     },
 

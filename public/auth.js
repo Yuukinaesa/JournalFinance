@@ -231,8 +231,11 @@ class Auth {
     static async fetchImage(id) {
         await this.ensureToken();
         if (!this.isAuthenticated()) return null;
+        // SECURITY: Sanitize ID to prevent path injection
+        const safeId = String(id).replace(/[^a-zA-Z0-9_-]/g, '');
+        if (!safeId) return null;
         try {
-            const res = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/api/entries/${id}/image`, {
+            const res = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/api/entries/${safeId}/image`, {
                 headers: this.getHeaders()
             });
             if (!res.ok) return null;
@@ -273,8 +276,11 @@ class Auth {
     static async deleteEntry(id) {
         await this.ensureToken();
         if (!this.isAuthenticated()) throw new Error('Unauthorized');
+        // SECURITY: Sanitize ID to prevent path injection
+        const safeId = String(id).replace(/[^a-zA-Z0-9_-]/g, '');
+        if (!safeId) throw new Error('Invalid entry ID');
         try {
-            const res = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/api/entries/${id}`, {
+            const res = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/api/entries/${safeId}`, {
                 method: 'DELETE',
                 headers: this.getHeaders()
             });

@@ -69,8 +69,12 @@ export default {
             'Access-Control-Allow-Origin': corsOrigin,
             'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, DELETE',
             'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+            'Content-Type': 'application/json',
             'X-Content-Type-Options': 'nosniff',
             'X-Frame-Options': 'DENY',
+            'Referrer-Policy': 'strict-origin-when-cross-origin',
+            'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+            'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
             'Vary': 'Origin' // Important for caching correctness
         };
 
@@ -229,14 +233,14 @@ export default {
 
                         // Ensure it's a valid JSON string or object
                         const prefString = typeof preferences === 'string' ? preferences : JSON.stringify(preferences);
-                        
+
                         await env.DB.prepare('UPDATE users SET preferences = ? WHERE id = ?')
                             .bind(prefString, user.id)
                             .run();
 
                         return new Response(JSON.stringify({ success: true, preferences: JSON.parse(prefString) }), { headers: corsHeaders });
                     } catch (e) {
-                         return new Response(JSON.stringify({ error: 'Invalid data' }), { status: 400, headers: corsHeaders });
+                        return new Response(JSON.stringify({ error: 'Invalid data' }), { status: 400, headers: corsHeaders });
                     }
                 }
 
@@ -263,6 +267,10 @@ export default {
                     // Pattern: /api/entries/IMAGE_ID/image
                     if (path.match(/\/api\/entries\/[^\/]+\/image/) && method === 'GET') {
                         const entryId = path.split('/')[3]; // /api/entries/ID/image
+                        // SECURITY: Validate entryId to prevent path traversal
+                        if (!entryId || !/^[a-zA-Z0-9_-]+$/.test(entryId) || entryId.length > CONSTANTS.MAX_ENTRY_ID_LENGTH) {
+                            return new Response(JSON.stringify({ error: 'Invalid entry ID' }), { status: 400, headers: corsHeaders });
+                        }
                         const entry = await env.DB.prepare('SELECT image_data FROM entries WHERE id = ? AND user_id = ?').bind(entryId, user.id).first();
 
                         if (entry && entry.image_data) {
@@ -392,6 +400,10 @@ export default {
 
                     if (path.startsWith('/api/entries/') && method === 'DELETE') {
                         const entryId = path.split('/')[3];
+                        // SECURITY: Validate entryId to prevent path traversal / injection
+                        if (!entryId || !/^[a-zA-Z0-9_-]+$/.test(entryId) || entryId.length > CONSTANTS.MAX_ENTRY_ID_LENGTH) {
+                            return new Response(JSON.stringify({ error: 'Invalid entry ID' }), { status: 400, headers: corsHeaders });
+                        }
                         await env.DB.prepare('DELETE FROM entries WHERE id = ? AND user_id = ?').bind(entryId, user.id).run();
                         return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
                     }
@@ -556,9 +568,9 @@ export default {
             accessToken: accessToken,  // Explicit access token
             refreshToken: refreshToken, // New: refresh token
             expiresIn: CONSTANTS.JWT_ACCESS_TOKEN_EXPIRE_SEC,
-            user: { 
-                id: user.id, 
-                email: user.email, 
+            user: {
+                id: user.id,
+                email: user.email,
                 username: user.username,
                 preferences: user.preferences ? JSON.parse(user.preferences) : null
             }
@@ -568,19 +580,42 @@ export default {
 
 
     async syncData(request, env, user, headers) {
-        const { entries } = await request.json();
+        const body = await request.json();
+        const entries = body.entries;
+
+        // SECURITY: Validate input type
+        if (entries && !Array.isArray(entries)) {
+            return new Response(JSON.stringify({ error: 'Invalid entries format' }), { status: 400, headers });
+        }
+
+        // SECURITY: Limit batch size to prevent DoS
+        const MAX_SYNC_BATCH = 500;
+        if (entries && entries.length > MAX_SYNC_BATCH) {
+            return new Response(JSON.stringify({ error: `Too many entries (max ${MAX_SYNC_BATCH})` }), { status: 400, headers });
+        }
+
         if (entries && Array.isArray(entries) && entries.length > 0) {
             const batchStmts = [];
 
             // Prepare Statements
-            // 1. Try Insert (Safe)
+            // 1. Try Insert (Safe) - Only for NEW entries
             const insertStmt = env.DB.prepare(`
                 INSERT OR IGNORE INTO entries (id, user_id, date, title, type, amount, reason, highlight, pinned, has_image, image_data, timestamp)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `);
 
-            // 2. Update ONLY if owned by user
-            const updateStmt = env.DB.prepare(`
+            // 2. Update metadata ONLY (PRESERVE existing image_data)
+            // BUG FIX: Previously this always set image_data=null during sync,
+            // silently deleting all images. Now we only update metadata fields.
+            const updateMetadataStmt = env.DB.prepare(`
+                UPDATE entries SET
+                date=?, title=?, type=?, amount=?, reason=?, 
+                highlight=?, pinned=?, has_image=?, timestamp=?
+                WHERE id = ? AND user_id = ?
+            `);
+
+            // 3. Update WITH image_data (only when explicitly provided)
+            const updateWithImageStmt = env.DB.prepare(`
                 UPDATE entries SET
                 date=?, title=?, type=?, amount=?, reason=?, 
                 highlight=?, pinned=?, has_image=?, 
@@ -594,20 +629,31 @@ export default {
                 const highlight = e.highlight ? 1 : 0;
                 const pinned = e.pinned ? 1 : 0;
                 const hasImage = e.hasImage ? 1 : 0;
-                const imageData = e.imageData || null;
+                const hasExplicitImageData = e.imageData !== undefined && e.imageData !== null;
+                const imageData = hasExplicitImageData ? e.imageData : null;
 
-                // Push Insert
+                // Push Insert (for new entries only)
                 batchStmts.push(insertStmt.bind(
                     e.id, user.id, e.date, e.title, e.type,
                     amount, reason, highlight, pinned, hasImage, imageData, e.timestamp
                 ));
 
-                // Push Update
-                batchStmts.push(updateStmt.bind(
-                    e.date, e.title, e.type, amount, reason,
-                    highlight, pinned, hasImage, imageData, e.timestamp,
-                    e.id, user.id // Where Clause
-                ));
+                // Push Update - choose correct statement based on whether imageData is provided
+                if (hasExplicitImageData) {
+                    // Image data explicitly provided - update it
+                    batchStmts.push(updateWithImageStmt.bind(
+                        e.date, e.title, e.type, amount, reason,
+                        highlight, pinned, hasImage, imageData, e.timestamp,
+                        e.id, user.id
+                    ));
+                } else {
+                    // No image data in payload - preserve existing image_data in DB
+                    batchStmts.push(updateMetadataStmt.bind(
+                        e.date, e.title, e.type, amount, reason,
+                        highlight, pinned, hasImage, e.timestamp,
+                        e.id, user.id
+                    ));
+                }
             }
 
             // Execute Batch
@@ -830,11 +876,20 @@ export default {
 
 
     async verifyToken(token, secret) {
-        const [header, body, signature] = token.split('.');
+        if (!token || typeof token !== 'string') throw new Error('Invalid token');
+        const parts = token.split('.');
+        if (parts.length !== 3) throw new Error('Invalid token format');
+        const [header, body, signature] = parts;
         if (!header || !body || !signature) throw new Error('Invalid token');
         const validSignature = await this.hmacSha256(`${header}.${body}`, secret);
         if (signature !== validSignature) throw new Error('Invalid signature');
-        const payload = JSON.parse(atob(body));
+        let payload;
+        try {
+            payload = JSON.parse(atob(body));
+        } catch (e) {
+            throw new Error('Malformed token payload');
+        }
+        if (!payload || typeof payload !== 'object') throw new Error('Invalid payload');
         if (Date.now() / 1000 > payload.exp) throw new Error('Token expired');
         return payload;
     },
