@@ -67,7 +67,7 @@ export default {
         // CORS Headers - NOW RESTRICTED
         const corsHeaders = {
             'Access-Control-Allow-Origin': corsOrigin,
-            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, DELETE',
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS, DELETE',
             'Access-Control-Allow-Headers': 'Content-Type, Authorization',
             'Content-Type': 'application/json',
             'X-Content-Type-Options': 'nosniff',
