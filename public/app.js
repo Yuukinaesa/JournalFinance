@@ -375,15 +375,12 @@ window.app = {
             this.updateProgressUI(80, 'backup', 'fetching_preferences');
             await new Promise(r => setTimeout(r, 50));
 
-            let preferences = {};
-            try {
-                const user = Auth.getUser();
-                if (user && user.preferences) {
-                    preferences = user.preferences;
-                }
-            } catch (err) {
-                console.warn('Failed to fetch preferences during backup', err);
-            }
+            // ALWAYS construct preferences from active local state to guarantee we capture what the user sees
+            const preferences = {
+                theme: document.body.getAttribute('data-theme') || 'light',
+                excludedExports: Array.from(this.excludedExportIds || []),
+                excludedTxts: Array.from(this.excludedTxtIds || [])
+            };
 
             this.updateProgressUI(90, 'backup', 'compressing');
             await new Promise(r => setTimeout(r, 50));
