@@ -244,21 +244,39 @@ h1 {
     box-shadow: 0 0 10px var(--primary-shadow);
 }
 
-.action-export-toggle.excluded {
+.action-export-toggle.excluded,
+.action-txt-toggle.excluded {
     background-color: rgba(239, 68, 68, 0.1);
     border-color: #ef4444;
     color: #ef4444 !important;
 }
-.action-export-toggle.excluded .icon-include { display: none !important; }
-.action-export-toggle.excluded .icon-exclude { display: block !important; }
 
-.action-export-toggle:not(.excluded) {
+.action-export-toggle.excluded .icon-include,
+.action-txt-toggle.excluded .icon-include {
+    display: none !important;
+}
+
+.action-export-toggle.excluded .icon-exclude,
+.action-txt-toggle.excluded .icon-exclude {
+    display: block !important;
+}
+
+.action-export-toggle:not(.excluded),
+.action-txt-toggle:not(.excluded) {
     background-color: rgba(16, 185, 129, 0.1);
     border-color: #10b981;
     color: #10b981 !important;
 }
-.action-export-toggle:not(.excluded) .icon-include { display: block !important; }
-.action-export-toggle:not(.excluded) .icon-exclude { display: none !important; }
+
+.action-export-toggle:not(.excluded) .icon-include,
+.action-txt-toggle:not(.excluded) .icon-include {
+    display: block !important;
+}
+
+.action-export-toggle:not(.excluded) .icon-exclude,
+.action-txt-toggle:not(.excluded) .icon-exclude {
+    display: none !important;
+}
 
 .btn-icon svg {
     width: 20px;

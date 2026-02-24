@@ -138,7 +138,7 @@ window.app = {
             }
 
             this.registerServiceWorker();
-            this.initTheme();
+            this.initPreferences();
             this.initEventListeners();
             this.renderList();
 
@@ -759,20 +759,53 @@ window.app = {
         }
     },
 
-    initTheme() {
+    initPreferences() {
         let savedTheme = localStorage.getItem('theme');
         const user = Auth.getUser();
 
-        // Cloud Preference Priority
+        // 1. Cloud Preference Priority & Theme Init
         if (user && user.preferences && user.preferences.theme) {
             savedTheme = user.preferences.theme;
             localStorage.setItem('theme', savedTheme);
         }
-
         savedTheme = savedTheme || 'light';
         document.body.setAttribute('data-theme', savedTheme);
         if (document.getElementById('themeToggle')) {
             this.updateThemeIcon(savedTheme);
+        }
+
+        // 2. Load Excluded Exports
+        this.excludedExportIds = new Set();
+        let savedExcluded = null;
+        if (user && user.preferences && Array.isArray(user.preferences.excludedExports)) {
+            savedExcluded = user.preferences.excludedExports;
+            localStorage.setItem('excludedExports', JSON.stringify(savedExcluded));
+        } else {
+            try {
+                const localStr = localStorage.getItem('excludedExports');
+                if (localStr) savedExcluded = JSON.parse(localStr);
+            } catch (e) { }
+        }
+
+        if (Array.isArray(savedExcluded)) {
+            this.excludedExportIds = new Set(savedExcluded);
+        }
+
+        // 3. Load Excluded Txts
+        this.excludedTxtIds = new Set();
+        let savedTxtExcluded = null;
+        if (user && user.preferences && Array.isArray(user.preferences.excludedTxts)) {
+            savedTxtExcluded = user.preferences.excludedTxts;
+            localStorage.setItem('excludedTxts', JSON.stringify(savedTxtExcluded));
+        } else {
+            try {
+                const localStr = localStorage.getItem('excludedTxts');
+                if (localStr) savedTxtExcluded = JSON.parse(localStr);
+            } catch (e) { }
+        }
+
+        if (Array.isArray(savedTxtExcluded)) {
+            this.excludedTxtIds = new Set(savedTxtExcluded);
         }
     },
 
@@ -893,6 +926,7 @@ window.app = {
                     case 'pin': this.togglePin(id); break;
                     case 'delete': this.initiateDelete(id); break;
                     case 'toggle-export': this.toggleExportSelection(id); break;
+                    case 'toggle-txt': this.toggleTxtSelection(id); break;
                 }
             });
         }
@@ -915,6 +949,7 @@ window.app = {
     debounceTimer: null,
     deferredPrompt: null,
     excludedExportIds: new Set(),
+    excludedTxtIds: new Set(),
 
     async logStorageStats() {
         // Placeholder
@@ -1386,7 +1421,46 @@ window.app = {
             btn.classList.toggle('excluded', this.excludedExportIds.has(idStr));
         }
 
-        // Ensure visual state represents reality by checking again (optional but safe)
+        this.saveExportPreferences();
+    },
+
+    saveExportPreferences() {
+        const excludedArray = Array.from(this.excludedExportIds);
+        localStorage.setItem('excludedExports', JSON.stringify(excludedArray));
+
+        // Sync to cloud
+        Auth.updatePreferences({ excludedExports: excludedArray }).catch(err => {
+            console.warn('Failed to sync export preferences:', err);
+        });
+    },
+
+    toggleTxtSelection(id) {
+        const idStr = String(id);
+        if (this.excludedTxtIds.has(idStr)) {
+            this.excludedTxtIds.delete(idStr);
+            this.showToast('✅ Catatan disertakan untuk Download TXT');
+        } else {
+            this.excludedTxtIds.add(idStr);
+            this.showToast('❌ Catatan dikecualikan dari Download TXT');
+        }
+
+        // Update DOM element directly instead of re-rendering full list
+        const btn = document.querySelector(`button[data-action="toggle-txt"][data-id="${id}"]`);
+        if (btn) {
+            btn.classList.toggle('excluded', this.excludedTxtIds.has(idStr));
+        }
+
+        this.saveTxtPreferences();
+    },
+
+    saveTxtPreferences() {
+        const excludedArray = Array.from(this.excludedTxtIds);
+        localStorage.setItem('excludedTxts', JSON.stringify(excludedArray));
+
+        // Sync to cloud
+        Auth.updatePreferences({ excludedTxts: excludedArray }).catch(err => {
+            console.warn('Failed to sync txt preferences:', err);
+        });
     },
 
     // --- Rendering ---
@@ -1482,9 +1556,15 @@ window.app = {
                          <button class="btn-icon action-pin ${item.pinned ? 'active' : ''}" data-action="pin" data-id="${cleanId}" aria-label="Pin">
                               <svg pointer-events="none" viewBox="0 0 24 24" fill="${item.pinned ? 'currentColor' : 'none'}" stroke="${item.pinned ? 'none' : 'currentColor'}" stroke-width="2" style="width:18px;height:18px;"><line x1="12" y1="17" x2="12" y2="22"></line><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"></path></svg>
                          </button>
-                         <button class="btn-icon action-export-toggle ${this.excludedExportIds.has(String(item.id)) ? 'excluded' : ''}" data-action="toggle-export" data-id="${cleanId}" aria-label="Toggle WhatsApp/Copy" title="Include/Exclude dari Export">
+                         <button class="btn-icon action-export-toggle ${this.excludedExportIds.has(String(item.id)) ? 'excluded' : ''}" data-action="toggle-export" data-id="${cleanId}" aria-label="Toggle WhatsApp/Copy" title="Include/Exclude dari WhatsApp/Copy">
+                             <!-- Copy/WA Icon -->
                              <svg class="icon-include" pointer-events="none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
                              <svg class="icon-exclude" pointer-events="none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+                         </button>
+                         <button class="btn-icon action-txt-toggle ${this.excludedTxtIds.has(String(item.id)) ? 'excluded' : ''}" data-action="toggle-txt" data-id="${cleanId}" aria-label="Toggle TXT Download" title="Include/Exclude dari TXT Download">
+                             <!-- File Icon for TXT -->
+                             <svg class="icon-include" pointer-events="none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
+                             <svg class="icon-exclude" pointer-events="none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="9" y1="15" x2="15" y2="15"></line><line x1="9" y1="15" x2="15" y2="15"></line><line x1="15" y1="12" x2="9" y2="18"></line><line x1="9" y1="12" x2="15" y2="18"></line></svg>
                          </button>
                          <button class="btn-icon action-delete" data-action="delete" data-id="${cleanId}" aria-label="Hapus">
                              <svg pointer-events="none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2v2"></path></svg>
@@ -1786,7 +1866,7 @@ window.app = {
 
     downloadTxt() {
         let dataToExport = this.getFilteredData();
-        dataToExport = dataToExport.filter(i => !this.excludedExportIds.has(String(i.id)));
+        dataToExport = dataToExport.filter(i => !this.excludedTxtIds.has(String(i.id)));
 
         if (!dataToExport || dataToExport.length === 0) {
             this.showToast('⚠️ Tidak ada data untuk diunduh');

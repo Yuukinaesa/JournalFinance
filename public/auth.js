@@ -304,20 +304,25 @@ class Auth {
         await this.ensureToken();
         if (!this.isAuthenticated()) return;
         try {
+            // Merge with existing preferences so we don't overwrite
+            const user = this.getUser();
+            const currentPrefs = user && user.preferences ? user.preferences : {};
+            const mergedPrefs = { ...currentPrefs, ...preferences };
+
             const res = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/api/user/preferences`, {
                 method: 'PUT',
                 headers: this.getHeaders(),
-                body: JSON.stringify({ preferences })
+                body: JSON.stringify({ preferences: mergedPrefs })
             });
 
             if (!res.ok) throw new Error('Failed to update preferences');
             const json = await res.json();
 
             // Update local user object
-            const user = this.getUser();
-            if (user) {
-                user.preferences = json.preferences;
-                localStorage.setItem('auth_user', JSON.stringify(user));
+            const updatedUser = this.getUser();
+            if (updatedUser) {
+                updatedUser.preferences = json.preferences;
+                localStorage.setItem('auth_user', JSON.stringify(updatedUser));
             }
             return json.preferences;
         } catch (e) {
