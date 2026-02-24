@@ -533,8 +533,11 @@ window.app = {
             // Prevent ID collisions and allow cross-account imports
             // Note: Images are already merged into entriesToRestore.imageData at this point
             // so we only need to regenerate the entry IDs
+            const idMapping = {};
             entriesToRestore.forEach(entry => {
-                entry.id = crypto.randomUUID();
+                const newId = crypto.randomUUID();
+                if (entry.id) idMapping[String(entry.id)] = newId;
+                entry.id = newId;
             });
 
             // -----------------------------------------------------
@@ -573,6 +576,14 @@ window.app = {
             if (json.version === 2 && json.preferences) {
                 this.updateProgressUI(100, 'restore', 'Menyimpan Pengaturan...');
                 try {
+                    // Update excluded IDs based on ID regeneration mapping
+                    if (Array.isArray(json.preferences.excludedExports)) {
+                        json.preferences.excludedExports = json.preferences.excludedExports.map(oldId => idMapping[String(oldId)]).filter(Boolean);
+                    }
+                    if (Array.isArray(json.preferences.excludedTxts)) {
+                        json.preferences.excludedTxts = json.preferences.excludedTxts.map(oldId => idMapping[String(oldId)]).filter(Boolean);
+                    }
+
                     await Auth.updatePreferences(json.preferences);
                     this.initPreferences(); // Reload preferences in UI
                 } catch (e) {
