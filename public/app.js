@@ -892,6 +892,7 @@ window.app = {
                     case 'edit': this.editEntry(id); break;
                     case 'pin': this.togglePin(id); break;
                     case 'delete': this.initiateDelete(id); break;
+                    case 'toggle-export': this.toggleExportSelection(id); break;
                 }
             });
         }
@@ -913,6 +914,7 @@ window.app = {
 
     debounceTimer: null,
     deferredPrompt: null,
+    excludedExportIds: new Set(),
 
     async logStorageStats() {
         // Placeholder
@@ -1368,6 +1370,25 @@ window.app = {
         }
     },
 
+    toggleExportSelection(id) {
+        const idStr = String(id);
+        if (this.excludedExportIds.has(idStr)) {
+            this.excludedExportIds.delete(idStr);
+            this.showToast('✅ Catatan disertakan untuk WhatsApp/Copy');
+        } else {
+            this.excludedExportIds.add(idStr);
+            this.showToast('❌ Catatan dikecualikan dari WhatsApp/Copy');
+        }
+        
+        // Update DOM element directly instead of re-rendering full list
+        const btn = document.querySelector(`button[data-action="toggle-export"][data-id="${id}"]`);
+        if (btn) {
+            btn.classList.toggle('excluded', this.excludedExportIds.has(idStr));
+        }
+        
+        // Ensure visual state represents reality by checking again (optional but safe)
+    },
+
     // --- Rendering ---
 
     async renderList() {
@@ -1460,6 +1481,10 @@ window.app = {
                          </button>
                          <button class="btn-icon action-pin ${item.pinned ? 'active' : ''}" data-action="pin" data-id="${cleanId}" aria-label="Pin">
                               <svg pointer-events="none" viewBox="0 0 24 24" fill="${item.pinned ? 'currentColor' : 'none'}" stroke="${item.pinned ? 'none' : 'currentColor'}" stroke-width="2" style="width:18px;height:18px;"><line x1="12" y1="17" x2="12" y2="22"></line><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"></path></svg>
+                         </button>
+                         <button class="btn-icon action-export-toggle ${this.excludedExportIds.has(String(item.id)) ? 'excluded' : ''}" data-action="toggle-export" data-id="${cleanId}" aria-label="Toggle WhatsApp/Copy" title="Include/Exclude dari Export">
+                             <svg class="icon-include" pointer-events="none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                             <svg class="icon-exclude" pointer-events="none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
                          </button>
                          <button class="btn-icon action-delete" data-action="delete" data-id="${cleanId}" aria-label="Hapus">
                              <svg pointer-events="none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2v2"></path></svg>
@@ -1693,7 +1718,9 @@ window.app = {
 
     async copyText() {
         // Use filtered data so user can copy specific views (e.g. per month)
-        const dataToExport = this.getFilteredData();
+        let dataToExport = this.getFilteredData();
+        dataToExport = dataToExport.filter(i => !this.excludedExportIds.has(String(i.id)));
+        
         if (!dataToExport || dataToExport.length === 0) {
             this.showToast('⚠️ Tidak ada data untuk disalin');
             return;
@@ -1747,7 +1774,9 @@ window.app = {
     },
 
     downloadTxt() {
-        const dataToExport = this.getFilteredData();
+        let dataToExport = this.getFilteredData();
+        dataToExport = dataToExport.filter(i => !this.excludedExportIds.has(String(i.id)));
+        
         if (!dataToExport || dataToExport.length === 0) {
             this.showToast('⚠️ Tidak ada data untuk diunduh');
             return;
