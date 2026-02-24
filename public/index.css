@@ -1483,10 +1483,7 @@ select option {
 
 /* ============ MOBILE RESPONSIVE ============ */
 @media (max-width: 640px) {
-
-    /* Hide download txt icon on mobile */
-    .action-txt-toggle,
-    #downloadBtn {
+    #downloadBtn svg {
         display: none !important;
     }
 
