@@ -1483,6 +1483,13 @@ select option {
 
 /* ============ MOBILE RESPONSIVE ============ */
 @media (max-width: 640px) {
+
+    /* Hide download txt icon on mobile */
+    .action-txt-toggle,
+    #downloadBtn {
+        display: none !important;
+    }
+
     .connection-content {
         padding: 16px 20px;
         gap: 14px;
