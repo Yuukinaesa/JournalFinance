@@ -8,7 +8,7 @@
  * ======================================================================
  */
 
-const CACHE_VERSION = 'journal-finance-v2.4.0-force-fresh';
+const CACHE_VERSION = 'journal-finance-v2.5.0-force-fresh';
 const CACHE_NAME = `${CACHE_VERSION}-static`;
 const CACHE_DYNAMIC = `${CACHE_VERSION}-dynamic`;
 const CACHE_IMAGES = `${CACHE_VERSION}-images`;

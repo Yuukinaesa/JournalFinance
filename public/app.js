@@ -1379,13 +1379,13 @@ window.app = {
             this.excludedExportIds.add(idStr);
             this.showToast('❌ Catatan dikecualikan dari WhatsApp/Copy');
         }
-        
+
         // Update DOM element directly instead of re-rendering full list
         const btn = document.querySelector(`button[data-action="toggle-export"][data-id="${id}"]`);
         if (btn) {
             btn.classList.toggle('excluded', this.excludedExportIds.has(idStr));
         }
-        
+
         // Ensure visual state represents reality by checking again (optional but safe)
     },
 
@@ -1720,7 +1720,7 @@ window.app = {
         // Use filtered data so user can copy specific views (e.g. per month)
         let dataToExport = this.getFilteredData();
         dataToExport = dataToExport.filter(i => !this.excludedExportIds.has(String(i.id)));
-        
+
         if (!dataToExport || dataToExport.length === 0) {
             this.showToast('⚠️ Tidak ada data untuk disalin');
             return;
@@ -1753,10 +1753,22 @@ window.app = {
         const txt = header + lines.join('\n\n');
 
         try {
-            await navigator.clipboard.writeText(txt);
-            this.showToast('✅ Laporan disalin ke clipboard');
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(txt);
+                this.showToast('✅ Laporan disalin ke clipboard');
+            } else {
+                console.warn('Clipboard API tidak tersedia');
+            }
+        } catch (err) {
+            console.warn('Gagal salin ke clipboard:', err);
+            const isMobileCheck = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 768;
+            if (!isMobileCheck) {
+                this.showToast('❌ Gagal menyalin: ' + err.message);
+            }
+        }
 
-            // Mobile Detection & Redirect
+        try {
+            // Mobile Detection & Redirect (Always attempt on mobile)
             const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 768;
 
             if (isMobile) {
@@ -1766,17 +1778,16 @@ window.app = {
                 // It must be called synchronously inside this handler.
                 window.location.href = `https://wa.me/?text=${encodeURIComponent(txt)}`;
             }
-
         } catch (err) {
-            console.error('Copy failed:', err);
-            this.showToast('❌ Gagal menyalin: ' + err.message);
+            console.error('WhatsApp redirect err:', err);
+            this.showToast('❌ Gagal mengalihkan ke WhatsApp');
         }
     },
 
     downloadTxt() {
         let dataToExport = this.getFilteredData();
         dataToExport = dataToExport.filter(i => !this.excludedExportIds.has(String(i.id)));
-        
+
         if (!dataToExport || dataToExport.length === 0) {
             this.showToast('⚠️ Tidak ada data untuk diunduh');
             return;
