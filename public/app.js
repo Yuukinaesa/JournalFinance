@@ -372,6 +372,19 @@ window.app = {
             }
 
             // 3. Serialize
+            this.updateProgressUI(80, 'backup', 'fetching_preferences');
+            await new Promise(r => setTimeout(r, 50));
+
+            let preferences = {};
+            try {
+                const user = Auth.getUser();
+                if (user && user.preferences) {
+                    preferences = user.preferences;
+                }
+            } catch (err) {
+                console.warn('Failed to fetch preferences during backup', err);
+            }
+
             this.updateProgressUI(90, 'backup', 'compressing');
             await new Promise(r => setTimeout(r, 50));
 
@@ -379,7 +392,8 @@ window.app = {
                 version: 2,
                 timestamp: new Date().toISOString(),
                 entries,
-                images
+                images,
+                preferences
             };
 
             const jsonString = JSON.stringify(backupData, null, 2);
@@ -553,6 +567,17 @@ window.app = {
                 const currentCount = Math.min(i + BATCH_SIZE, total);
                 const pct = Math.floor((currentCount / total) * 100);
                 this.updateProgressUI(pct, 'restore', `Mengupload ${currentCount}/${total}...`);
+            }
+
+            // 3. Restore Preferences (If Version 2+)
+            if (json.version === 2 && json.preferences) {
+                this.updateProgressUI(100, 'restore', 'Menyimpan Pengaturan...');
+                try {
+                    await Auth.updatePreferences(json.preferences);
+                    this.initPreferences(); // Reload preferences in UI
+                } catch (e) {
+                    console.warn('Gagal memulihkan pengaturan', e);
+                }
             }
 
             this.handleSuccess('restore');
