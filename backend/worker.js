@@ -530,7 +530,7 @@ export default {
 
         // SECURITY: Constant-time comparison to prevent timing attacks
         // Always hash password even if user not found to prevent timing-based enumeration
-        const dummyHash = '0'.repeat(64); // Dummy hash for timing safety
+        const dummyHash = `pbkdf2$${CONSTANTS.PBKDF2_ITERATIONS}$${'0'.repeat(32)}$${'0'.repeat(64)}`; // PBKDF2 dummy hash for timing safety
         const hashToCompare = user ? user.password_hash : dummyHash;
         const isValid = await this.verifyPassword(password, hashToCompare);
 
@@ -624,33 +624,66 @@ export default {
             `);
 
             for (const e of entries) {
-                const amount = e.amount || 0;
-                const reason = e.reason || '';
-                const highlight = e.highlight ? 1 : 0;
-                const pinned = e.pinned ? 1 : 0;
-                const hasImage = e.hasImage ? 1 : 0;
+                // SECURITY: Basic validation to prevent DoS, NoSQL injection, or overflow on Sync
+                if (!e.id || typeof e.id !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(e.id) || e.id.length > CONSTANTS.MAX_ENTRY_ID_LENGTH) {
+                    continue; // Skip invalid ID to prevent batch crash
+                }
+
+                let title = typeof e.title === 'string' ? e.title.trim().replace(/[\x00-\x1F\x7F]/g, '') : "Untitled";
+                if (title.length > CONSTANTS.MAX_TITLE_LENGTH) title = title.substring(0, CONSTANTS.MAX_TITLE_LENGTH);
+                if (!title) title = "Untitled";
+
+                const dateStr = (typeof e.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(e.date)) ? e.date : new Date().toISOString().slice(0, 10);
+                const validTypes = ['saham', 'kripto', 'barang', 'peristiwa', 'lainnya'];
+                const type = validTypes.includes(e.type) ? e.type : 'lainnya';
+
+                let amount = parseFloat(e.amount);
+                if (isNaN(amount) || amount < CONSTANTS.MIN_AMOUNT_VALUE || amount > CONSTANTS.MAX_AMOUNT_VALUE) amount = 0;
+
+                let reason = typeof e.reason === 'string' ? e.reason : '';
+                if (reason.length > CONSTANTS.MAX_REASON_LENGTH) reason = reason.substring(0, CONSTANTS.MAX_REASON_LENGTH);
+
+                const highlight = !!e.highlight ? 1 : 0;
+                const pinned = !!e.pinned ? 1 : 0;
+                let hasImage = !!e.hasImage ? 1 : 0;
+
+                let timestamp = parseInt(e.timestamp);
+                if (isNaN(timestamp) || timestamp < 0 || timestamp > Date.now() + CONSTANTS.MAX_FUTURE_TIMESTAMP_MS) {
+                    timestamp = Date.now();
+                }
+
+                let imageData = null;
                 const hasExplicitImageData = e.imageData !== undefined && e.imageData !== null;
-                const imageData = hasExplicitImageData ? e.imageData : null;
+                if (hasExplicitImageData) {
+                    if (typeof e.imageData === 'string' && /^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(e.imageData) && e.imageData.length <= CONSTANTS.MAX_IMAGE_SIZE_BYTES) {
+                        imageData = e.imageData;
+                        hasImage = 1;
+                    } else {
+                        // Invalid image, clear it
+                        hasImage = 0;
+                        imageData = null;
+                    }
+                }
 
                 // Push Insert (for new entries only)
                 batchStmts.push(insertStmt.bind(
-                    e.id, user.id, e.date, e.title, e.type,
-                    amount, reason, highlight, pinned, hasImage, imageData, e.timestamp
+                    e.id, user.id, dateStr, title, type,
+                    amount, reason, highlight, pinned, hasImage, imageData, timestamp
                 ));
 
                 // Push Update - choose correct statement based on whether imageData is provided
                 if (hasExplicitImageData) {
                     // Image data explicitly provided - update it
                     batchStmts.push(updateWithImageStmt.bind(
-                        e.date, e.title, e.type, amount, reason,
-                        highlight, pinned, hasImage, imageData, e.timestamp,
+                        dateStr, title, type, amount, reason,
+                        highlight, pinned, hasImage, imageData, timestamp,
                         e.id, user.id
                     ));
                 } else {
                     // No image data in payload - preserve existing image_data in DB
                     batchStmts.push(updateMetadataStmt.bind(
-                        e.date, e.title, e.type, amount, reason,
-                        highlight, pinned, hasImage, e.timestamp,
+                        dateStr, title, type, amount, reason,
+                        highlight, pinned, hasImage, timestamp,
                         e.id, user.id
                     ));
                 }
