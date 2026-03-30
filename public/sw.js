@@ -8,7 +8,7 @@
  * ======================================================================
  */
 
-const CACHE_VERSION = 'journal-finance-v2.6.7-force-fresh';
+const CACHE_VERSION = 'journal-finance-v2.7.0';
 const CACHE_NAME = `${CACHE_VERSION}-static`;
 const CACHE_DYNAMIC = `${CACHE_VERSION}-dynamic`;
 const CACHE_IMAGES = `${CACHE_VERSION}-images`;
@@ -17,10 +17,18 @@ const CACHE_IMAGES = `${CACHE_VERSION}-images`;
 const STATIC_ASSETS = [
     './',
     './index.html',
+    './index.css',
     './manifest.json',
     './OptimizedDB.js',
     './app.js',
     './auth.js',
+    './auth.css',
+    './auth-ui.js',
+    './ConnectionMonitor.js',
+    './login.html',
+    './login.js',
+    './register.html',
+    './register.js',
     './favicon.png',
     './icons/icon-72x72.png',
     './icons/icon-96x96.png',

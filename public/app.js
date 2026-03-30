@@ -142,8 +142,16 @@ window.app = {
             this.initEventListeners();
             this.renderList();
 
-            // Background Sync (Every 30 seconds) - Near Real-time
-            setInterval(() => this.performSync(), 30000);
+            // Background Sync (Every 10 seconds) - Near Real-time
+            this.syncIntervalId = setInterval(() => this.performSync(), 10000);
+
+            // REAL-TIME: Instant sync when user returns to tab (cross-device scenario)
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible' && Auth.isAuthenticated()) {
+                    // Small delay to let network stabilize after screen wake
+                    setTimeout(() => this.performSync(), 500);
+                }
+            });
 
             // RESUME CHECK - Keeping for File Restore Only
             if (localStorage.getItem('APP_STATUS') === 'RESTORING') {
@@ -167,7 +175,7 @@ window.app = {
             if (!existingUserDisplay) {
                 const userDiv = document.createElement('div');
                 userDiv.id = 'userDisplay';
-                userDiv.style.cssText = 'position: absolute; top: 1rem; right: 1rem; font-size: 0.85rem; color: var(--text-muted); background: var(--bg-card); padding: 4px 12px; border-radius: 20px; border: 1px solid var(--border-color); display: flex; align-items: center; gap: 8px; z-index: 50;';
+                userDiv.style.cssText = 'position: fixed; top: 12px; right: 12px; font-size: 0.85rem; color: var(--text-muted); background: var(--bg-card); padding: 4px 12px; border-radius: 20px; border: 1px solid var(--border-color); display: flex; align-items: center; gap: 8px; z-index: 50; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); max-width: calc(100vw - 24px);';
                 userDiv.innerHTML = `
                         <div style="width: 8px; height: 8px; background: #10b981; border-radius: 50%;"></div>
                         <span style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${this.escapeHtml(user.username || user.email)}</span>
@@ -704,7 +712,7 @@ window.app = {
         this.isSyncing = true;
 
         try {
-            this.showToast('🔄 Mengunduh data terbaru...');
+            // Silent sync - no toast spam (only show toast on actual data changes)
 
             // AUTHORITY: CLOUD IS TRUTH
             // We do not upload "local" changes here because "Online Only" app pushes changes immediately on save.
@@ -775,10 +783,47 @@ window.app = {
             }
             if (imageCleanups.length > 0) await Promise.all(imageCleanups);
 
-            // 6. Update Runtime State
-            this.data = toUpdate;
-            this.renderList();
-            this.showToast('✅ Data termutakhir (Cloud Sync)');
+            // 6. Update Runtime State — ONLY re-render if data actually changed
+            // This prevents UI flickering/blinking on every sync cycle when nothing changed
+            const hasDeleted = toDelete.length > 0;
+            const countChanged = toUpdate.length !== this.data.length;
+
+            // Deep content check: compare a fingerprint of key fields
+            let contentChanged = false;
+            if (!countChanged && !hasDeleted) {
+                // Build fast fingerprint from cloud data to compare with current runtime
+                const cloudFingerprint = cloudEntries.map(e =>
+                    `${e.id}|${e.title}|${e.date}|${e.type}|${e.reason || ''}|${!!e.highlight}|${!!e.pinned}|${!!e.hasImage}|${e.timestamp || 0}`
+                ).sort().join(';;');
+
+                const localFingerprint = this.data.map(e =>
+                    `${e.id}|${e.title}|${e.date}|${e.type}|${e.reason || ''}|${!!e.highlight}|${!!e.pinned}|${!!e.hasImage}|${e.timestamp || 0}`
+                ).sort().join(';;');
+
+                contentChanged = cloudFingerprint !== localFingerprint;
+            }
+
+            const dataActuallyChanged = hasDeleted || countChanged || contentChanged;
+
+            if (dataActuallyChanged) {
+                this.data = toUpdate;
+                this.renderList();
+                this.showToast('✅ Data termutakhir (Cloud Sync)');
+            } else {
+                // Silently update runtime reference without re-rendering DOM
+                this.data = toUpdate;
+            }
+
+            // 7. REAL-TIME PREFERENCE SYNC
+            // Fetch latest preferences from cloud (handles cross-device changes)
+            try {
+                const freshPrefs = await Auth.fetchPreferences();
+                if (freshPrefs) {
+                    this.applyCloudPreferences(freshPrefs);
+                }
+            } catch (prefErr) {
+                console.warn('Preference sync skipped:', prefErr);
+            }
 
         } catch (e) {
             console.error('Sync error:', e);
@@ -796,7 +841,7 @@ window.app = {
         let savedTheme = localStorage.getItem('theme');
         const user = Auth.getUser();
 
-        // 1. Cloud Preference Priority & Theme Init
+        // 1. Theme Init (localStorage for instant paint, cloud for truth)
         if (user && user.preferences && user.preferences.theme) {
             savedTheme = user.preferences.theme;
             localStorage.setItem('theme', savedTheme);
@@ -807,38 +852,78 @@ window.app = {
             this.updateThemeIcon(savedTheme);
         }
 
-        // 2. Load Excluded Exports
+        // 2. Load Excluded Exports (from cloud user cache ONLY - no separate localStorage)
         this.excludedExportIds = new Set();
-        let savedExcluded = null;
         if (user && user.preferences && Array.isArray(user.preferences.excludedExports)) {
-            savedExcluded = user.preferences.excludedExports;
-            localStorage.setItem('excludedExports', JSON.stringify(savedExcluded));
-        } else {
-            try {
-                const localStr = localStorage.getItem('excludedExports');
-                if (localStr) savedExcluded = JSON.parse(localStr);
-            } catch (e) { }
+            this.excludedExportIds = new Set(user.preferences.excludedExports);
         }
 
-        if (Array.isArray(savedExcluded)) {
-            this.excludedExportIds = new Set(savedExcluded);
-        }
-
-        // 3. Load Excluded Txts
+        // 3. Load Excluded Txts (from cloud user cache ONLY - no separate localStorage)
         this.excludedTxtIds = new Set();
-        let savedTxtExcluded = null;
         if (user && user.preferences && Array.isArray(user.preferences.excludedTxts)) {
-            savedTxtExcluded = user.preferences.excludedTxts;
-            localStorage.setItem('excludedTxts', JSON.stringify(savedTxtExcluded));
-        } else {
-            try {
-                const localStr = localStorage.getItem('excludedTxts');
-                if (localStr) savedTxtExcluded = JSON.parse(localStr);
-            } catch (e) { }
+            this.excludedTxtIds = new Set(user.preferences.excludedTxts);
         }
 
-        if (Array.isArray(savedTxtExcluded)) {
-            this.excludedTxtIds = new Set(savedTxtExcluded);
+        // 4. BACKGROUND: Fetch FRESH preferences from cloud (non-blocking)
+        // This ensures that even if cached user is stale, we get latest within seconds
+        if (Auth.isAuthenticated()) {
+            setTimeout(() => {
+                Auth.fetchPreferences().then(freshPrefs => {
+                    if (freshPrefs) {
+                        this.applyCloudPreferences(freshPrefs);
+                    }
+                }).catch(() => { /* Non-fatal */ });
+            }, 2000); // 2s delay to not compete with initial data load
+        }
+    },
+
+    /**
+     * APPLY CLOUD PREFERENCES (Real-time Sync)
+     * Called by performSync() to apply fresh preferences from the cloud.
+     * This ensures cross-device preference changes are reflected immediately.
+     */
+    applyCloudPreferences(prefs) {
+        if (!prefs) return;
+
+        let changed = false;
+
+        // 1. Theme
+        if (prefs.theme) {
+            const currentTheme = document.body.getAttribute('data-theme');
+            if (currentTheme !== prefs.theme) {
+                document.body.setAttribute('data-theme', prefs.theme);
+                localStorage.setItem('theme', prefs.theme);
+                this.updateThemeIcon(prefs.theme);
+                changed = true;
+            }
+        }
+
+        // 2. Excluded Exports
+        if (Array.isArray(prefs.excludedExports)) {
+            const newSet = new Set(prefs.excludedExports);
+            const currentArr = [...this.excludedExportIds].sort().join(',');
+            const newArr = [...newSet].sort().join(',');
+            if (currentArr !== newArr) {
+                this.excludedExportIds = newSet;
+                changed = true;
+            }
+        }
+
+        // 3. Excluded Txts
+        if (Array.isArray(prefs.excludedTxts)) {
+            const newSet = new Set(prefs.excludedTxts);
+            const currentArr = [...this.excludedTxtIds].sort().join(',');
+            const newArr = [...newSet].sort().join(',');
+            if (currentArr !== newArr) {
+                this.excludedTxtIds = newSet;
+                changed = true;
+            }
+        }
+
+        // Re-render if preferences changed (to update button states)
+        if (changed) {
+            this.renderList();
+            console.log('🔄 Preferences synced from cloud');
         }
     },
 
@@ -965,16 +1050,42 @@ window.app = {
         }
 
         // Close Modals on Outside Click
-        window.onclick = (event) => {
+        window.addEventListener('click', (event) => {
             const entryModal = document.getElementById('entryModal');
             const deleteModal = document.getElementById('deleteModal');
             const resetModal = document.getElementById('resetModal');
             const logoutModal = document.getElementById('logoutModal');
-            if (event.target == entryModal) this.closeModal();
-            if (event.target == deleteModal) this.closeDeleteModal();
-            if (event.target == resetModal) this.closeResetModal();
-            if (event.target == logoutModal) this.closeLogoutModal();
-        };
+            if (event.target === entryModal) this.closeModal();
+            if (event.target === deleteModal) this.closeDeleteModal();
+            if (event.target === resetModal) this.closeResetModal();
+            if (event.target === logoutModal) this.closeLogoutModal();
+        });
+
+        // Keyboard: Escape to close modals (Accessibility)
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                const alertModal = document.getElementById('alertModal');
+                const confirmModal = document.getElementById('genericConfirmModal');
+                const entryModal = document.getElementById('entryModal');
+                const deleteModal = document.getElementById('deleteModal');
+                const resetModal = document.getElementById('resetModal');
+                const logoutModal = document.getElementById('logoutModal');
+
+                if (alertModal && alertModal.classList.contains('open')) {
+                    document.getElementById('alertOkBtn').click();
+                } else if (confirmModal && confirmModal.classList.contains('open')) {
+                    document.getElementById('gConfirmCancelBtn').click();
+                } else if (deleteModal && deleteModal.classList.contains('open')) {
+                    this.closeDeleteModal();
+                } else if (resetModal && resetModal.classList.contains('open')) {
+                    this.closeResetModal();
+                } else if (logoutModal && logoutModal.classList.contains('open')) {
+                    this.closeLogoutModal();
+                } else if (entryModal && entryModal.classList.contains('open')) {
+                    this.closeModal();
+                }
+            }
+        });
     },
 
     // --- Logic ---
@@ -1357,6 +1468,11 @@ window.app = {
 
     confirmLogout() {
         try {
+            // Clear sync interval to prevent background errors after logout
+            if (this.syncIntervalId) {
+                clearInterval(this.syncIntervalId);
+                this.syncIntervalId = null;
+            }
             Auth.logout();
             window.location.replace('login.html');
         } catch (e) {
@@ -1403,6 +1519,9 @@ window.app = {
         const entry = this.data.find(i => String(i.id) === String(id));
         if (!entry) return;
         this.isSaving = true;
+        // Visual feedback
+        const btn = document.querySelector(`button[data-action="highlight"][data-id="${id}"]`);
+        if (btn) btn.style.opacity = '0.5';
         try {
             entry.highlight = !entry.highlight;
             // Optimistic update
@@ -1423,6 +1542,9 @@ window.app = {
         const entry = this.data.find(i => String(i.id) === String(id));
         if (!entry) return;
         this.isSaving = true;
+        // Visual feedback
+        const btn = document.querySelector(`button[data-action="pin"][data-id="${id}"]`);
+        if (btn) btn.style.opacity = '0.5';
         try {
             entry.pinned = !entry.pinned;
             // Optimistic update
@@ -1459,9 +1581,8 @@ window.app = {
 
     saveExportPreferences() {
         const excludedArray = Array.from(this.excludedExportIds);
-        localStorage.setItem('excludedExports', JSON.stringify(excludedArray));
 
-        // Sync to cloud
+        // Sync to cloud (single source of truth - no localStorage)
         Auth.updatePreferences({ excludedExports: excludedArray }).catch(err => {
             console.warn('Failed to sync export preferences:', err);
         });
@@ -1488,9 +1609,8 @@ window.app = {
 
     saveTxtPreferences() {
         const excludedArray = Array.from(this.excludedTxtIds);
-        localStorage.setItem('excludedTxts', JSON.stringify(excludedArray));
 
-        // Sync to cloud
+        // Sync to cloud (single source of truth - no localStorage)
         Auth.updatePreferences({ excludedTxts: excludedArray }).catch(err => {
             console.warn('Failed to sync txt preferences:', err);
         });
@@ -1600,7 +1720,7 @@ window.app = {
                              <svg class="icon-exclude" pointer-events="none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="9" y1="15" x2="15" y2="15"></line><line x1="9" y1="15" x2="15" y2="15"></line><line x1="15" y1="12" x2="9" y2="18"></line><line x1="9" y1="12" x2="15" y2="18"></line></svg>
                          </button>
                          <button class="btn-icon action-delete" data-action="delete" data-id="${cleanId}" aria-label="Hapus">
-                             <svg pointer-events="none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2v2"></path></svg>
+                             <svg pointer-events="none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                          </button>
                      </div>
                  </div>
@@ -1630,19 +1750,20 @@ window.app = {
                 // Fetch from Cloud API
                 const imageData = await Auth.fetchImage(entryId);
 
-                if (imageData) {
+                // SECURITY: Validate base64 format before injecting into DOM
+                if (imageData && typeof imageData === 'string' && /^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(imageData)) {
                     container.innerHTML = `<img src="${imageData}" style="width:100%; border-radius:8px; display:block; box-shadow: var(--shadow-sm);" loading="lazy" alt="Attachment">`;
 
                     // Simple modal for image view
                     const img = container.querySelector('img');
                     img.style.cursor = 'zoom-in';
-                    img.onclick = () => {
+                    img.addEventListener('click', () => {
                         const modal = document.createElement('div');
                         modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:zoom-out;animation:fadeIn 0.2s;';
                         modal.innerHTML = `<img src="${imageData}" style="max-width:95%;max-height:95vh;border-radius:4px;box-shadow:0 0 30px rgba(0,0,0,0.5);">`;
-                        modal.onclick = () => modal.remove();
+                        modal.addEventListener('click', () => modal.remove());
                         document.body.appendChild(modal);
-                    };
+                    });
 
                 } else {
                     container.style.display = 'none';
@@ -1725,7 +1846,12 @@ window.app = {
 
     updateThemeIcon(theme) {
         const btn = document.getElementById('themeToggle');
-        if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+        if (!btn) return;
+        if (theme === 'dark') {
+            btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>`;
+        } else {
+            btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`;
+        }
     },
 
     openModal(isEdit = false) {
@@ -1906,12 +2032,36 @@ window.app = {
             return;
         }
 
-        const txt = dataToExport.map(i => `${i.date} [${i.type}]: ${i.title}\nKet: ${i.reason}\n----------------`).join('\n');
-        const blob = new Blob([txt], { type: 'text/plain' });
+        // Build header with export metadata
+        const dateStart = document.getElementById('dateStart').value;
+        const dateEnd = document.getElementById('dateEnd').value;
+        const filterType = document.getElementById('filterType').value;
+        let header = `JURNAL KEUANGAN\nDiekspor: ${new Date().toLocaleDateString('id-ID')}\n`;
+        if (dateStart || dateEnd) header += `Periode: ${dateStart || '...'} s/d ${dateEnd || '...'}\n`;
+        if (filterType) header += `Kategori: ${filterType.toUpperCase()}\n`;
+        header += `Total: ${dataToExport.length} catatan\n${'='.repeat(40)}\n\n`;
+
+        const body = dataToExport.map((i, idx) => {
+            let entry = `${idx + 1}. ${i.date} [${i.type.toUpperCase()}]: ${i.title}`;
+            if (i.reason && i.reason.trim()) entry += `\n   Catatan: ${i.reason}`;
+            return entry;
+        }).join('\n\n');
+
+        const txt = header + body;
+        // UTF-8 BOM for proper Unicode display in all editors
+        const blob = new Blob(['\uFEFF' + txt], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = 'jurnal.txt';
+        a.href = url;
+        // Include date context in filename
+        const dateSuffix = dateStart && dateEnd ? `_${dateStart}_${dateEnd}` : `_${new Date().toISOString().slice(0, 10)}`;
+        a.download = `jurnal${dateSuffix}.txt`;
+        document.body.appendChild(a);
         a.click();
+        document.body.removeChild(a);
+        // Prevent memory leak
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+        this.showToast('✅ File TXT berhasil diunduh');
     },
 
     formatDate(d) {

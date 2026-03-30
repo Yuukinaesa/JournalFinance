@@ -137,7 +137,6 @@ h1 {
     font-size: 2.5rem;
     font-weight: 800;
     letter-spacing: -0.03em;
-    letter-spacing: -0.03em;
     background: var(--primary-gradient);
     background-clip: text;
     -webkit-background-clip: text;
@@ -529,6 +528,12 @@ select option {
         width: 100%;
         justify-content: flex-end;
         margin-bottom: 4px;
+        gap: 4px;
+    }
+
+    .card-actions .btn-icon {
+        width: 34px;
+        height: 34px;
     }
 
     .card-title-group {
@@ -599,9 +604,20 @@ select option {
     color: var(--badge-event);
 }
 
+.badge-lainnya {
+    background: rgba(107, 114, 128, 0.1);
+    color: #6b7280;
+}
+
+[data-theme="dark"] .badge-lainnya {
+    color: #9ca3af;
+}
+
 .card-actions {
     display: flex;
-    gap: 8px;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
 }
 
 .card-actions .btn-icon {
@@ -905,14 +921,25 @@ select option {
     align-items: center;
 }
 
+/* Hide text labels on mobile, show only on desktop */
+.desktop-only {
+    display: inline;
+}
+
+@media (max-width: 768px) {
+    .desktop-only {
+        display: none;
+    }
+}
+
 
 
 /* Toast */
 /* Modern Toast Styling */
 .toast {
     position: fixed;
-    bottom: 30px;
-    /* Keep bottom for main app, different from login top */
+    bottom: 110px;
+    /* Offset from FAB to prevent overlap */
     left: 50%;
     transform: translateX(-50%) translateY(100px);
     background: rgba(255, 255, 255, 0.8);
@@ -925,7 +952,7 @@ select option {
     align-items: center;
     justify-content: center;
     gap: 12px;
-    z-index: 2000;
+    z-index: 10001;
     opacity: 0;
     transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
     /* Springy */

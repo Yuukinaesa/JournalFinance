@@ -222,7 +222,24 @@ export default {
                     return new Response(JSON.stringify({ success: true, message: 'All sessions invalidated' }), { headers: corsHeaders });
                 }
 
-                // User Preferences
+                // User Preferences - GET (Fetch latest from cloud)
+                if (path === '/api/user/preferences' && method === 'GET') {
+                    const user = await this.verifyAuth(request, env);
+                    if (!user) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: corsHeaders });
+
+                    try {
+                        const row = await env.DB.prepare('SELECT preferences FROM users WHERE id = ?')
+                            .bind(user.id)
+                            .first();
+
+                        const preferences = row && row.preferences ? JSON.parse(row.preferences) : {};
+                        return new Response(JSON.stringify({ success: true, preferences }), { headers: corsHeaders });
+                    } catch (e) {
+                        return new Response(JSON.stringify({ error: 'Failed to fetch preferences' }), { status: 500, headers: corsHeaders });
+                    }
+                }
+
+                // User Preferences - PUT (Update)
                 if (path === '/api/user/preferences' && method === 'PUT') {
                     const user = await this.verifyAuth(request, env);
                     if (!user) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: corsHeaders });
@@ -516,6 +533,10 @@ export default {
         }
 
         const identifier = email.trim(); // Can be email or username
+        // SECURITY: Length limit to prevent oversized DB queries
+        if (identifier.length > CONSTANTS.MAX_EMAIL_LENGTH || password.length > CONSTANTS.MAX_PASSWORD_LENGTH) {
+            return new Response(JSON.stringify({ error: 'Invalid credentials' }), { status: 401, headers });
+        }
         let user;
 
         if (identifier.includes('@')) {
@@ -915,7 +936,7 @@ export default {
         const [header, body, signature] = parts;
         if (!header || !body || !signature) throw new Error('Invalid token');
         const validSignature = await this.hmacSha256(`${header}.${body}`, secret);
-        if (signature !== validSignature) throw new Error('Invalid signature');
+        if (!this.constantTimeCompare(signature, validSignature)) throw new Error('Invalid signature');
         let payload;
         try {
             payload = JSON.parse(atob(body));

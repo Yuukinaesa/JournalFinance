@@ -135,7 +135,7 @@ const ConnectionMonitor = {
             const response = await fetch(`${this.API_URL}/api/health`, {
                 method: 'GET',
                 signal: controller.signal,
-                credentials: 'include'
+                credentials: 'omit'
             });
 
             clearTimeout(timeoutId);

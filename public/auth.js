@@ -331,6 +331,39 @@ class Auth {
         }
     }
 
+    /**
+     * FETCH PREFERENCES FROM CLOUD (Real-time Sync)
+     * Called during every sync cycle to get the latest preferences from the server.
+     * This ensures cross-device changes are picked up even without re-login.
+     */
+    static async fetchPreferences() {
+        await this.ensureToken();
+        if (!this.isAuthenticated()) return null;
+        try {
+            const res = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/api/user/preferences`, {
+                method: 'GET',
+                headers: this.getHeaders()
+            });
+
+            if (!res.ok) throw new Error('Failed to fetch preferences');
+            const json = await res.json();
+
+            if (json.success && json.preferences) {
+                // Update local user cache with fresh preferences
+                const user = this.getUser();
+                if (user) {
+                    user.preferences = json.preferences;
+                    localStorage.setItem('auth_user', JSON.stringify(user));
+                }
+                return json.preferences;
+            }
+            return null;
+        } catch (e) {
+            console.warn('Fetch Preferences Error (non-fatal):', e);
+            return null; // Non-fatal: fallback to cached preferences
+        }
+    }
+
     static async syncWithCloud(entries) {
         await this.ensureToken();
         if (!this.isAuthenticated()) return [];
