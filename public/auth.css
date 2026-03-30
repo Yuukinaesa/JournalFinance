@@ -297,7 +297,7 @@ h1 {
     font-weight: 500;
     color: #1f2937;
     border: 1px solid rgba(229, 231, 235, 0.5);
-    min-width: 300px;
+    min-width: min(300px, 85vw);
     max-width: 90%;
 }
 

@@ -767,10 +767,8 @@ window.app = {
                 await Promise.all(toDelete.map(id => this.db.deleteFull(id)));
             }
 
-            if (toUpdate.length > 0) {
-                console.log('Sync: Updating entries', toUpdate.length);
-                await this.db.bulkPut('entries', toUpdate);
-            }
+            // Note: bulkPut is deferred until after change detection to avoid
+            // unnecessary IndexedDB writes when data hasn't changed.
 
             // 5. Image State Consistency
             // If cloud says 'hasImage: false', ensure we don't have a lingering image blob
@@ -807,6 +805,10 @@ window.app = {
 
             if (dataActuallyChanged) {
                 this.data = toUpdate;
+                // Write to IndexedDB only when data changed
+                if (toUpdate.length > 0) {
+                    await this.db.bulkPut('entries', toUpdate);
+                }
                 this.renderList();
                 this.showToast('✅ Data termutakhir (Cloud Sync)');
             } else {

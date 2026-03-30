@@ -921,14 +921,36 @@ select option {
     align-items: center;
 }
 
-/* Hide text labels on mobile, show only on desktop */
+/* Text labels always visible on all screen sizes */
 .desktop-only {
     display: inline;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 480px) {
     .desktop-only {
-        display: none;
+        font-size: 0.75rem;
+    }
+
+    /* Compact header buttons on small screens */
+    .actions-group {
+        gap: 6px;
+        flex-wrap: wrap;
+        justify-content: flex-start;
+    }
+
+    .actions-group .btn {
+        padding: 8px 10px;
+        font-size: 0.78rem;
+        gap: 4px;
+    }
+
+    .actions-group .btn svg {
+        width: 16px;
+        height: 16px;
+    }
+
+    .actions-group .btn-icon {
+        padding: 8px;
     }
 }
 
@@ -1218,6 +1240,12 @@ select option {
 
 .connection-icon svg.spin {
     animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 /* ============ TEXT STYLES ============ */
