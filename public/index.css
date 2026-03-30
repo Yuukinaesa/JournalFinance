@@ -917,40 +917,48 @@ select option {
 
 .actions-group {
     display: flex;
-    gap: 12px;
+    gap: 8px;
     align-items: center;
+    flex-wrap: wrap;
 }
 
-/* Text labels always visible on all screen sizes */
+/* Ensure buttons show icon + text inline */
+.actions-group .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+/* Text labels always visible */
 .desktop-only {
     display: inline;
 }
 
 @media (max-width: 480px) {
-    .desktop-only {
-        font-size: 0.75rem;
-    }
-
-    /* Compact header buttons on small screens */
     .actions-group {
+        width: 100%;
         gap: 6px;
-        flex-wrap: wrap;
-        justify-content: flex-start;
     }
 
+    /* Uniform compact buttons on mobile */
     .actions-group .btn {
+        flex: 1 1 auto;
+        justify-content: center;
         padding: 8px 10px;
         font-size: 0.78rem;
-        gap: 4px;
+        gap: 5px;
+        min-width: 0;
     }
 
     .actions-group .btn svg {
         width: 16px;
         height: 16px;
+        flex-shrink: 0;
     }
 
-    .actions-group .btn-icon {
-        padding: 8px;
+    .desktop-only {
+        font-size: 0.75rem;
     }
 }
 
