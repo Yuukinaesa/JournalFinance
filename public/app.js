@@ -175,7 +175,7 @@ window.app = {
             if (!existingUserDisplay) {
                 const userDiv = document.createElement('div');
                 userDiv.id = 'userDisplay';
-                userDiv.style.cssText = 'position: fixed; top: 12px; right: 12px; font-size: 0.85rem; color: var(--text-muted); background: var(--bg-card); padding: 4px 12px; border-radius: 20px; border: 1px solid var(--border-color); display: flex; align-items: center; gap: 8px; z-index: 50; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); max-width: calc(100vw - 24px);';
+                userDiv.style.cssText = 'position: absolute; top: 12px; right: 12px; font-size: 0.85rem; color: var(--text-muted); background: var(--bg-card); padding: 4px 12px; border-radius: 20px; border: 1px solid var(--border-color); display: flex; align-items: center; gap: 8px; z-index: 50; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); max-width: calc(100vw - 24px);';
                 userDiv.innerHTML = `
                         <div style="width: 8px; height: 8px; background: #10b981; border-radius: 50%;"></div>
                         <span style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${this.escapeHtml(user.username || user.email)}</span>
