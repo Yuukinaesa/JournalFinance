@@ -72,9 +72,10 @@ export default {
             'Content-Type': 'application/json',
             'X-Content-Type-Options': 'nosniff',
             'X-Frame-Options': 'DENY',
+            'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://catatan.arfan-hidayat-priyantono.workers.dev; object-src 'none'; base-uri 'self';",
             'Referrer-Policy': 'strict-origin-when-cross-origin',
             'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
-            'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+            'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload',
             'Vary': 'Origin' // Important for caching correctness
         };
 
@@ -461,6 +462,9 @@ export default {
                 newHeaders.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
                 newHeaders.set('Pragma', 'no-cache');
                 newHeaders.set('Expires', '0');
+                newHeaders.set('X-Content-Type-Options', 'nosniff');
+                newHeaders.set('X-Frame-Options', 'DENY');
+                newHeaders.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
 
                 return new Response(asset.body, {
                     status: asset.status,
