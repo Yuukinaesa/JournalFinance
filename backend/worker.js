@@ -15,8 +15,8 @@ const CONSTANTS = {
     RATE_LIMIT_EVICTION_PERCENT: 0.2,       // Evict 20% when full
 
     // JWT Token Expiration
-    JWT_ACCESS_TOKEN_EXPIRE_SEC: 7776000,   // 90 days (3 months)
-    JWT_REFRESH_TOKEN_EXPIRE_SEC: 7776000,  // 90 days (3 months)
+    JWT_ACCESS_TOKEN_EXPIRE_SEC: 900,       // 15 minutes (short-lived for security)
+    JWT_REFRESH_TOKEN_EXPIRE_SEC: 7776000,  // 90 days (long-lived for UX)
 
     // Password Security
     PBKDF2_ITERATIONS: 100000,              // OWASP minimum
@@ -72,7 +72,7 @@ export default {
             'Content-Type': 'application/json',
             'X-Content-Type-Options': 'nosniff',
             'X-Frame-Options': 'DENY',
-            'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://catatan.arfan-hidayat-priyantono.workers.dev; object-src 'none'; base-uri 'self';",
+            'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://catatan.arfan-hidayat-priyantono.workers.dev; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests;",
             'Referrer-Policy': 'strict-origin-when-cross-origin',
             'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
             'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload',
@@ -111,6 +111,28 @@ export default {
                 headers: corsHeaders
             });
         }
+
+        // --- AUTH SPECIFIC RATE LIMITING ---
+        if (path.startsWith('/api/auth/')) {
+            if (!globalThis.authRateLimiter) globalThis.authRateLimiter = new Map();
+            const authLimiter = globalThis.authRateLimiter;
+            const authLimitData = authLimiter.get(clientIp) || { count: 0, lastReset: currentTime };
+            if (currentTime - authLimitData.lastReset > 60000) { // 1 minute
+                authLimitData.count = 0;
+                authLimitData.lastReset = currentTime;
+            }
+            authLimitData.count++;
+            authLimiter.set(clientIp, authLimitData);
+            if (authLimitData.count > 5) { // Max 5 auth attempts per minute
+                return new Response(JSON.stringify({ error: 'Too Many Auth Attempts. Try again later.' }), {
+                    status: 429,
+                    headers: corsHeaders
+                });
+            }
+            // Simple cleanup for auth limiter
+            if (authLimiter.size > 1000) authLimiter.clear();
+        }
+        // -----------------------------------------------------------
 
         // MEMORY LEAK FIX: Periodic cleanup of old entries (every 5 minutes)
         // This prevents unbounded growth from unique IPs

@@ -23,6 +23,7 @@
   "author": "Arfan Hidayat Priyantono",
   "license": "UNLICENSED",
   "devDependencies": {
+    "eslint": "^10.2.1",
     "sharp": "^0.34.5",
     "wrangler": "^4.77.0"
   }
