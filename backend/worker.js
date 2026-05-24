@@ -57,11 +57,13 @@ export default {
             ? requestOrigin
             : allowedOrigins[0]; // Default to first allowed origin
 
-        // For local development ONLY, allow localhost
+        // For local development ONLY, allow localhost (strict check)
         if (requestOrigin &&
-            (requestOrigin.includes('localhost') || requestOrigin.includes('127.0.0.1')) &&
-            url.hostname.includes('localhost')) {
-            corsOrigin = requestOrigin;
+            url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+            if (requestOrigin === 'http://localhost:8787' || requestOrigin === 'http://127.0.0.1:8787' ||
+                requestOrigin === 'http://localhost:3000' || requestOrigin === 'http://127.0.0.1:3000') {
+                corsOrigin = requestOrigin;
+            }
         }
 
         // CORS Headers - NOW RESTRICTED
@@ -70,6 +72,7 @@ export default {
             'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS, DELETE',
             'Access-Control-Allow-Headers': 'Content-Type, Authorization',
             'Content-Type': 'application/json',
+            'Cache-Control': 'no-store', // SECURITY: Prevent caching of authenticated responses
             'X-Content-Type-Options': 'nosniff',
             'X-Frame-Options': 'DENY',
             'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://catatan.arfan-hidayat-priyantono.workers.dev; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests;",
@@ -197,7 +200,7 @@ export default {
                         }
 
                         // Check token version (logout-all invalidation)
-                        const user = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(payload.id).first();
+                        const user = await env.DB.prepare('SELECT id, email, username, token_version FROM users WHERE id = ?').bind(payload.id).first();
                         if (!user) {
                             return new Response(JSON.stringify({ error: 'User not found' }), {
                                 status: 404,
@@ -213,7 +216,7 @@ export default {
                             });
                         }
 
-                        // Issue new access token
+                        // Issue new access token + rotated refresh token
                         const newTokenPayload = {
                             id: user.id,
                             email: user.email,
@@ -221,11 +224,13 @@ export default {
                             v: currentVersion
                         };
                         const newAccessToken = await this.signToken(newTokenPayload, env.JWT_SECRET, 'access');
+                        const newRefreshToken = await this.signToken(newTokenPayload, env.JWT_SECRET, 'refresh');
 
                         return new Response(JSON.stringify({
                             success: true,
                             accessToken: newAccessToken,
                             token: newAccessToken, // Backward compatibility
+                            refreshToken: newRefreshToken, // SECURITY: Rotate refresh token
                             expiresIn: CONSTANTS.JWT_ACCESS_TOKEN_EXPIRE_SEC
                         }), { headers: corsHeaders });
 
@@ -273,6 +278,11 @@ export default {
 
                         // Ensure it's a valid JSON string or object
                         const prefString = typeof preferences === 'string' ? preferences : JSON.stringify(preferences);
+
+                        // SECURITY: Limit preferences size to prevent storage abuse
+                        if (prefString.length > 50000) {
+                            return new Response(JSON.stringify({ error: 'Preferences too large (max 50KB)' }), { status: 400, headers: corsHeaders });
+                        }
 
                         await env.DB.prepare('UPDATE users SET preferences = ? WHERE id = ?')
                             .bind(prefString, user.id)
@@ -619,7 +629,7 @@ export default {
                 id: user.id,
                 email: user.email,
                 username: user.username,
-                preferences: user.preferences ? JSON.parse(user.preferences) : null
+                preferences: (() => { try { return user.preferences ? JSON.parse(user.preferences) : null; } catch(e) { return null; } })()
             }
         }), { headers });
     },
@@ -783,9 +793,13 @@ export default {
         try {
             const payload = await this.verifyToken(token, secret);
 
+            // SECURITY: Reject refresh tokens used as bearer tokens
+            // Only access tokens should be used for API authentication
+            if (payload.type && payload.type !== 'access') return null;
+
             // Check Token Version against DB
-            // Use SELECT * to avoid crash if token_version column is missing (migration pending)
-            const user = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(payload.id).first();
+            // Only select needed columns to prevent password hash leakage
+            const user = await env.DB.prepare('SELECT id, email, username, token_version, preferences FROM users WHERE id = ?').bind(payload.id).first();
             if (!user) return null;
 
             const currentVersion = user.token_version || 1;
@@ -828,7 +842,8 @@ export default {
         // Derive key using PBKDF2
         const encoder = new TextEncoder();
         const passwordBuffer = encoder.encode(password);
-        const saltBytes = encoder.encode(salt);
+        // SECURITY: Use raw salt bytes for full entropy (not text-encoded hex)
+        const saltBytes = new Uint8Array(salt.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
 
         const keyMaterial = await crypto.subtle.importKey(
             'raw',
@@ -869,35 +884,48 @@ export default {
 
             const [, iterations, salt, hash] = parts;
 
-            // Re-hash the password with the stored salt and iterations
+            // Helper: derive PBKDF2 hash with given salt bytes
+            const deriveHash = async (saltBytes) => {
+                const encoder = new TextEncoder();
+                const passwordBuffer = encoder.encode(password);
+
+                const keyMaterial = await crypto.subtle.importKey(
+                    'raw',
+                    passwordBuffer,
+                    { name: 'PBKDF2' },
+                    false,
+                    ['deriveBits']
+                );
+
+                const derivedBits = await crypto.subtle.deriveBits(
+                    {
+                        name: 'PBKDF2',
+                        salt: saltBytes,
+                        iterations: parseInt(iterations),
+                        hash: 'SHA-256'
+                    },
+                    keyMaterial,
+                    256
+                );
+
+                const hashArray = Array.from(new Uint8Array(derivedBits));
+                return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+            };
+
+            // Method 1: Try NEW method (raw bytes from hex) — used by new hashPassword
+            const rawSaltBytes = new Uint8Array(salt.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+            const computedHashNew = await deriveHash(rawSaltBytes);
+
+            if (this.constantTimeCompare(computedHashNew, hash)) {
+                return true;
+            }
+
+            // Method 2: Fallback to OLD method (text-encoded hex string) — for existing hashes
             const encoder = new TextEncoder();
-            const passwordBuffer = encoder.encode(password);
-            const saltBytes = encoder.encode(salt);
+            const textSaltBytes = encoder.encode(salt);
+            const computedHashOld = await deriveHash(textSaltBytes);
 
-            const keyMaterial = await crypto.subtle.importKey(
-                'raw',
-                passwordBuffer,
-                { name: 'PBKDF2' },
-                false,
-                ['deriveBits']
-            );
-
-            const derivedBits = await crypto.subtle.deriveBits(
-                {
-                    name: 'PBKDF2',
-                    salt: saltBytes,
-                    iterations: parseInt(iterations),
-                    hash: 'SHA-256'
-                },
-                keyMaterial,
-                256
-            );
-
-            const hashArray = Array.from(new Uint8Array(derivedBits));
-            const computedHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-
-            // Constant-time comparison to prevent timing attacks
-            return this.constantTimeCompare(computedHash, hash);
+            return this.constantTimeCompare(computedHashOld, hash);
         }
 
         // LEGACY: Support old SHA-256 hashes (for migration period)
@@ -913,10 +941,11 @@ export default {
      * Constant-time string comparison to prevent timing attacks
      */
     constantTimeCompare(a, b) {
-        if (a.length !== b.length) return false;
-        let mismatch = 0;
-        for (let i = 0; i < a.length; i++) {
-            mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+        // SECURITY: Pad to same length to avoid leaking length via timing
+        const maxLen = Math.max(a.length, b.length);
+        let mismatch = a.length ^ b.length; // Non-zero if lengths differ
+        for (let i = 0; i < maxLen; i++) {
+            mismatch |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
         }
         return mismatch === 0;
     },
@@ -932,7 +961,7 @@ export default {
      * Refresh tokens: 90 days (7776000 seconds)
      */
     async signToken(payload, secret, tokenType = 'access') {
-        const header = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+        const header = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" })).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
         // SECURITY FIX: Reduced expiration times
         const expirationTimes = {
@@ -947,7 +976,7 @@ export default {
             ...payload,
             exp,
             type: tokenType // Include token type in payload
-        }));
+        })).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/,'');
 
         const unsigned = `${header}.${body}`;
         const signature = await this.hmacSha256(unsigned, secret);
@@ -961,11 +990,20 @@ export default {
         if (parts.length !== 3) throw new Error('Invalid token format');
         const [header, body, signature] = parts;
         if (!header || !body || !signature) throw new Error('Invalid token');
+
+        // SECURITY: Validate algorithm header to prevent algorithm confusion attacks
+        try {
+            const headerObj = JSON.parse(atob(header.replace(/-/g, '+').replace(/_/g, '/')));
+            if (headerObj.alg !== 'HS256') throw new Error('Invalid algorithm');
+        } catch (e) {
+            throw new Error('Invalid token header');
+        }
+
         const validSignature = await this.hmacSha256(`${header}.${body}`, secret);
         if (!this.constantTimeCompare(signature, validSignature)) throw new Error('Invalid signature');
         let payload;
         try {
-            payload = JSON.parse(atob(body));
+            payload = JSON.parse(atob(body.replace(/-/g, '+').replace(/_/g, '/')));
         } catch (e) {
             throw new Error('Malformed token payload');
         }

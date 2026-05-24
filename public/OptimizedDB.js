@@ -46,6 +46,7 @@ class OptimizedJournalDB {
                 this.db.onversionchange = () => {
                     this.db.close();
                     this.db = null;
+                    this.openPromise = null; // Reset so next open() creates fresh connection
                 };
                 this.openPromise = null; // Cleanup
                 resolve(this.db);

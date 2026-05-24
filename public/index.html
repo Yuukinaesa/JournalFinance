@@ -52,10 +52,10 @@
     <meta name="msapplication-TileImage" content="./icons/icon-144x144.png">
 
     <!-- Logic Layers -->
-    <script src="./OptimizedDB.js?v=999"></script>
-    <script src="./auth.js?v=999"></script>
-    <script src="./ConnectionMonitor.js?v=999"></script>
-    <script src="./app.js?v=999" defer></script>
+    <script src="./OptimizedDB.js" defer></script>
+    <script src="./auth.js" defer></script>
+    <script src="./ConnectionMonitor.js" defer></script>
+    <script src="./app.js" defer></script>
     <!-- Service Worker is managed by app.js -->
 
     <link rel="stylesheet" href="index.css">
@@ -73,7 +73,7 @@
                         Peristiwa Penting</p>
                 </div>
                 <div class="actions-group">
-                    <button id="themeToggle" class="btn btn-secondary" title="Toggle Theme">
+                    <button id="themeToggle" class="btn btn-secondary" title="Toggle Theme" aria-label="Toggle Theme">
                         <!-- Icon swapped by JS -->
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                             stroke-linecap="round" stroke-linejoin="round">
@@ -91,7 +91,7 @@
                         </svg>
                         <span class="desktop-only">Install</span>
                     </button>
-                    <button class="btn btn-secondary" id="triggerResetBtn" title="Reset Data (Hapus Semua)">
+                    <button class="btn btn-secondary" id="triggerResetBtn" title="Reset Data (Hapus Semua)" aria-label="Reset Data">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                             stroke-linecap="round" stroke-linejoin="round" style="color: #ef4444;">
                             <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
@@ -99,7 +99,7 @@
                         </svg>
                         <span class="desktop-only" style="color: #ef4444;">Reset</span>
                     </button>
-                    <button class="btn btn-secondary" id="backupBtn">
+                    <button class="btn btn-secondary" id="backupBtn" title="Backup Data" aria-label="Backup Data">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                             stroke-linecap="round" stroke-linejoin="round">
                             <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
@@ -109,7 +109,7 @@
                         <span class="desktop-only">Backup</span>
                     </button>
                     <input type="file" id="importFile" style="display: none;" accept=".json">
-                    <button class="btn btn-secondary" id="triggerRestoreBtn">
+                    <button class="btn btn-secondary" id="triggerRestoreBtn" title="Restore Data" aria-label="Restore Data">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                             stroke-linecap="round" stroke-linejoin="round">
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -130,10 +130,10 @@
                         <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                     </svg>
                     <input type="text" id="searchInput" class="search-input" autocomplete="off"
-                        placeholder="Cari catatan, saham, atau peristiwa...">
+                        placeholder="Cari catatan, saham, atau peristiwa..." aria-label="Cari catatan">
                 </div>
                 <div class="filter-group">
-                    <select id="filterType" class="form-select" style="min-width: 150px; cursor: pointer;">
+                    <select id="filterType" class="form-select" style="min-width: 150px; cursor: pointer;" aria-label="Filter Kategori">
                         <option value="">Semua Kategori</option>
                         <option value="saham">Saham / Investasi</option>
                         <option value="kripto">Kripto</option>
@@ -143,9 +143,9 @@
                     </select>
                 </div>
                 <div class="filter-group date-group">
-                    <input type="date" id="dateStart" class="date-input" placeholder="Dari" required>
+                    <input type="date" id="dateStart" class="date-input" placeholder="Dari" aria-label="Tanggal mulai">
                     <span class="date-separator">-</span>
-                    <input type="date" id="dateEnd" class="date-input" placeholder="Sampai" required>
+                    <input type="date" id="dateEnd" class="date-input" placeholder="Sampai" aria-label="Tanggal akhir">
                 </div>
                 <div class="filter-actions" style="display:flex; gap:8px;">
                     <button class="btn" title="Salin Catatan" id="copyBtn"
@@ -240,13 +240,14 @@
                 <div class="form-group" style="margin-bottom:0;">
                     <label class="form-label" for="entryTitle">Judul / Nama Asset</label>
                     <input type="text" id="entryTitle" class="form-input" placeholder="Contoh: Beli BTC, Lulus Kuliah"
-                        required style="font-weight: 600; font-size: 1.1rem;" autocomplete="off">
+                        required maxlength="200" style="font-weight: 600; font-size: 1.1rem;" autocomplete="off">
                 </div>
 
                 <div class="form-group" style="margin-bottom:0;">
                     <label class="form-label" for="entryReason">Catatan Detail</label>
                     <textarea id="entryReason" class="form-textarea"
                         placeholder="Tuliskan alasan, analisa, atau detail peristiwa..."
+                        maxlength="5000"
                         style="min-height: 120px; line-height: 1.6;"></textarea>
                 </div>
 
@@ -294,7 +295,7 @@
 
                         <!-- Preview State -->
                         <div id="previewContainer" style="display: none;">
-                            <img id="imagePreview" src="" alt="Preview"
+                            <img id="imagePreview" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="Preview"
                                 style="max-width: 100%; max-height: 250px; border-radius: 8px; box-shadow: var(--shadow-sm); display: block; margin: 0 auto;">
                             <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: center;">
                                 <button type="button" class="btn btn-secondary" id="replaceImgBtn">Ganti</button>
@@ -319,7 +320,7 @@
     </div>
 
     <!-- Delete Confirmation Modal -->
-    <div id="deleteModal" class="modal" role="dialog" aria-modal="true">
+    <div id="deleteModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="deleteModalTitle">
         <div class="modal-content" style="max-width: 400px; text-align: center;">
             <div style="margin-bottom: 16px;">
                 <div
@@ -333,7 +334,7 @@
                         <line x1="12" y1="17" x2="12.01" y2="17"></line>
                     </svg>
                 </div>
-                <h3 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 8px;">Hapus Catatan?</h3>
+                <h3 id="deleteModalTitle" style="font-size: 1.25rem; font-weight: 700; margin-bottom: 8px;">Hapus Catatan?</h3>
                 <p style="color: var(--text-muted); font-size: 0.95rem;">Tindakan ini tidak dapat dibatalkan. Apakah
                     Anda yakin?</p>
             </div>
@@ -346,7 +347,7 @@
     </div>
 
     <!-- Reset Confirmation Modal (Simplified) -->
-    <div id="resetModal" class="modal" role="dialog" aria-modal="true">
+    <div id="resetModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="resetModalTitle">
         <div class="modal-content" style="max-width: 400px; text-align: center;">
             <div style="margin-bottom: 24px;">
                 <div
@@ -357,7 +358,7 @@
                         <line x1="12" y1="2" x2="12" y2="12"></line>
                     </svg>
                 </div>
-                <h3 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 12px; color: var(--text-main);">Reset
+                <h3 id="resetModalTitle" style="font-size: 1.5rem; font-weight: 700; margin-bottom: 12px; color: var(--text-main);">Reset
                     Semua
                     Data?</h3>
                 <p style="color: var(--text-muted); font-size: 1rem; line-height: 1.6;">
@@ -388,7 +389,7 @@
     </div>
 
     <!-- Logout Confirmation Modal -->
-    <div id="logoutModal" class="modal" role="dialog" aria-modal="true">
+    <div id="logoutModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="logoutModalTitle">
         <div class="modal-content" style="max-width: 400px; text-align: center;">
             <div style="margin-bottom: 24px;">
                 <div
@@ -400,7 +401,7 @@
                         <line x1="21" y1="12" x2="9" y2="12"></line>
                     </svg>
                 </div>
-                <h3 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 12px; color: var(--text-main);">Keluar
+                <h3 id="logoutModalTitle" style="font-size: 1.5rem; font-weight: 700; margin-bottom: 12px; color: var(--text-main);">Keluar
                     Akun?</h3>
                 <p style="color: var(--text-muted); font-size: 1rem;">
                     Apakah yakin ingin keluar dari aplikasi?
@@ -417,7 +418,7 @@
     </div>
 
     <!-- Progress Modal (Robust) -->
-    <div id="progressModal" class="modal" role="dialog" aria-modal="true" style="z-index: 2000;">
+    <div id="progressModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="progressTitle" style="z-index: 2000;">
         <div class="modal-content" style="max-width: 400px; text-align: center;">
             <div style="margin-bottom: 24px;">
                 <div class="spinner"
@@ -452,7 +453,7 @@
     </style>
 
     <!-- Toast -->
-    <div id="toast" class="toast">Pesan notifikasi</div>
+    <div id="toast" class="toast" role="alert" aria-live="polite">Pesan notifikasi</div>
 
     <!-- Generic Alert Modal -->
     <div id="alertModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="alertTitle" style="z-index: 2100;">

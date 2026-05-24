@@ -20,8 +20,12 @@ const ConnectionMonitor = {
     lastSuccessfulPing: Date.now(),
     pendingOperations: [],
 
-    // API endpoint for health check
-    API_URL: 'https://catatan.arfan-hidayat-priyantono.workers.dev',
+    // API endpoint for health check - derive from auth.js or fallback
+    get API_URL() {
+        // Centralized: Use same URL as Auth module to prevent desync
+        if (typeof Auth !== 'undefined' && Auth.getBaseUrl) return Auth.getBaseUrl();
+        return 'https://catatan.arfan-hidayat-priyantono.workers.dev';
+    },
 
     init() {
         this.createStatusUI();

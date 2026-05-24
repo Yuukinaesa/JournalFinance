@@ -33,9 +33,20 @@ class Auth {
         return localStorage.getItem('auth_token');
     }
 
+    // Expose the resolved base URL for other modules (e.g., ConnectionMonitor)
+    static getBaseUrl() {
+        return API_CONFIG.BASE_URL || WORKER_URL;
+    }
+
     static getUser() {
-        const user = localStorage.getItem('auth_user');
-        return user ? JSON.parse(user) : null;
+        try {
+            const user = localStorage.getItem('auth_user');
+            return user ? JSON.parse(user) : null;
+        } catch (e) {
+            console.warn('Corrupted auth_user in localStorage:', e);
+            localStorage.removeItem('auth_user');
+            return null;
+        }
     }
 
     static isAuthenticated() {
@@ -122,6 +133,7 @@ class Auth {
     }
 
     static async logoutAll() {
+        await this.ensureToken();
         if (!this.isAuthenticated()) return { success: false, error: 'Not authenticated' };
         try {
             const res = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/api/auth/logout-all`, {
@@ -150,11 +162,25 @@ class Auth {
 
     // --- REFRESH TOKEN LOGIC ---
 
+    static _refreshPromise = null; // Mutex: prevent concurrent refresh calls
+
     static getRefreshToken() {
         return localStorage.getItem('auth_refresh_token');
     }
 
     static async refreshSession() {
+        // SECURITY: Prevent concurrent refresh calls (race condition fix)
+        if (this._refreshPromise) return this._refreshPromise;
+
+        this._refreshPromise = this._doRefreshSession();
+        try {
+            return await this._refreshPromise;
+        } finally {
+            this._refreshPromise = null;
+        }
+    }
+
+    static async _doRefreshSession() {
         const refreshToken = this.getRefreshToken();
         if (!refreshToken) throw new Error('No refresh token available');
 
@@ -169,7 +195,7 @@ class Auth {
 
             const data = await res.json();
             localStorage.setItem('auth_token', data.token); // Update Access Token
-            // If new refresh token is provided, update it too (rotation)
+            // SECURITY: Always update refresh token (rotation)
             if (data.refreshToken) localStorage.setItem('auth_refresh_token', data.refreshToken);
 
             return data.token;

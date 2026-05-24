@@ -698,8 +698,14 @@ window.app = {
     async waitForSync(operation = 'Proses') {
         if (this.isSyncing) {
             this.showProgress(0, 'Menunggu Sinkronisasi', `Menyelesaikan background sync sebelum ${operation}...`);
-            while (this.isSyncing) {
+            const maxWait = 15000; // 15 second timeout to prevent infinite loop
+            const startTime = Date.now();
+            while (this.isSyncing && (Date.now() - startTime) < maxWait) {
                 await new Promise(r => setTimeout(r, 500));
+            }
+            if (this.isSyncing) {
+                console.warn('waitForSync timed out after 15s, proceeding anyway');
+                this.isSyncing = false;
             }
         }
     },
@@ -712,7 +718,8 @@ window.app = {
         this.isSyncing = true;
 
         try {
-            // Silent sync - no toast spam (only show toast on actual data changes)
+            // BUG FIX: Ensure token is refreshed before syncing
+            await Auth.ensureToken();
 
             // AUTHORITY: CLOUD IS TRUTH
             // We do not upload "local" changes here because "Online Only" app pushes changes immediately on save.
@@ -1438,6 +1445,13 @@ window.app = {
 
             await Auth.resetCloud();
 
+            // BUG FIX: Also clear local IndexedDB cache to prevent stale data
+            try {
+                await this.db.clearAll();
+            } catch (dbErr) {
+                console.warn('Failed to clear local DB:', dbErr);
+            }
+
             this.data = [];
             localStorage.removeItem(this.STORAGE_KEY);
 
@@ -1479,7 +1493,10 @@ window.app = {
             window.location.replace('login.html');
         } catch (e) {
             console.error('Logout error:', e);
-            localStorage.clear();
+            // Only clear auth-related keys, not all localStorage
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('auth_refresh_token');
+            localStorage.removeItem('auth_user');
             window.location.replace('login.html');
         }
     },
@@ -1744,9 +1761,10 @@ window.app = {
 
     async loadImagesLazy() {
         const containers = document.querySelectorAll('.image-container');
-        for (const container of containers) {
+        // PERF FIX: Load images in parallel instead of sequentially
+        const loadPromises = Array.from(containers).map(async (container) => {
             const entryId = container.dataset.entryId;
-            if (!entryId) continue;
+            if (!entryId) return;
 
             try {
                 // Fetch from Cloud API
@@ -1761,7 +1779,7 @@ window.app = {
                     img.style.cursor = 'zoom-in';
                     img.addEventListener('click', () => {
                         const modal = document.createElement('div');
-                        modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:zoom-out;animation:fadeIn 0.2s;';
+                        modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:zoom-out;';
                         modal.innerHTML = `<img src="${imageData}" style="max-width:95%;max-height:95vh;border-radius:4px;box-shadow:0 0 30px rgba(0,0,0,0.5);">`;
                         modal.addEventListener('click', () => modal.remove());
                         document.body.appendChild(modal);
@@ -1774,7 +1792,8 @@ window.app = {
                 console.error('Error loading image', entryId, e);
                 container.style.display = 'none';
             }
-        }
+        });
+        await Promise.all(loadPromises);
     },
 
 
@@ -2088,3 +2107,9 @@ document.addEventListener('DOMContentLoaded', () => {
     window.app.init();
 });
 
+// Global unhandled promise rejection handler
+window.addEventListener('unhandledrejection', (event) => {
+    console.error('Unhandled promise rejection:', event.reason);
+    // Prevent noisy console errors from crashing the app
+    event.preventDefault();
+});
