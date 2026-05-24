@@ -400,6 +400,23 @@ async function runQASuite() {
         assert.ok(blocked);
     })) passed++; else failed++;
 
+    if (await runStep("4.4 Malformed JSON Payload", async () => {
+        if (globalThis.rateLimiter) globalThis.rateLimiter.clear();
+        if (globalThis.authRateLimiter) globalThis.authRateLimiter.clear();
+        const req = new Request('http://localhost/api/auth/login', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'CF-Connecting-IP': '127.0.0.1'
+            },
+            body: '{invalid-json: "malformed"}'
+        });
+        const res = await worker.fetch(req, env, ctx);
+        assert.equal(res.status, 400);
+        const data = await res.json();
+        assert.equal(data.error, 'Malformed JSON payload');
+    })) passed++; else failed++;
+
     // --- SUMMARY ---
     console.log(`\n=========================================`);
     console.log(`🏁 TEST COMPLETE`);

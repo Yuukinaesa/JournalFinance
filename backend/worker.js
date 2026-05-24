@@ -58,13 +58,18 @@ export default {
             : allowedOrigins[0]; // Default to first allowed origin
 
         // For local development ONLY, allow localhost (strict check)
-        if (requestOrigin &&
-            url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+        if (requestOrigin && (url.hostname === 'localhost' || url.hostname === '127.0.0.1')) {
             if (requestOrigin === 'http://localhost:8787' || requestOrigin === 'http://127.0.0.1:8787' ||
                 requestOrigin === 'http://localhost:3000' || requestOrigin === 'http://127.0.0.1:3000') {
                 corsOrigin = requestOrigin;
             }
         }
+
+        // Dynamic connect-src to support local development connections and WS/HMR
+        const localConnect = (url.hostname === 'localhost' || url.hostname === '127.0.0.1')
+            ? " http://127.0.0.1:8787 ws://127.0.0.1:8787 http://localhost:8787 ws://localhost:8787 http://localhost:3000 ws://localhost:3000 http://127.0.0.1:3000 ws://127.0.0.1:3000"
+            : "";
+        const cspHeader = `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://catatan.arfan-hidayat-priyantono.workers.dev${localConnect}; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests;`;
 
         // CORS Headers - NOW RESTRICTED
         const corsHeaders = {
@@ -75,7 +80,7 @@ export default {
             'Cache-Control': 'no-store', // SECURITY: Prevent caching of authenticated responses
             'X-Content-Type-Options': 'nosniff',
             'X-Frame-Options': 'DENY',
-            'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://catatan.arfan-hidayat-priyantono.workers.dev; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests;",
+            'Content-Security-Policy': cspHeader,
             'Referrer-Policy': 'strict-origin-when-cross-origin',
             'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
             'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload',
@@ -510,6 +515,9 @@ export default {
             }
 
         } catch (e) {
+            if (e instanceof SyntaxError) {
+                return new Response(JSON.stringify({ error: 'Malformed JSON payload' }), { status: 400, headers: corsHeaders });
+            }
             return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: corsHeaders });
         }
     },

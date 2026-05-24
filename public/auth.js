@@ -54,6 +54,11 @@ class Auth {
         if (!token) return false;
 
         if (this.isTokenExpired(token)) {
+            // Do not call logout() immediately if we have a refresh token available.
+            // ensureToken() will attempt to refresh the session asynchronously.
+            if (this.getRefreshToken()) {
+                return true;
+            }
             this.logout();
             return false;
         }
@@ -182,17 +187,38 @@ class Auth {
 
     static async _doRefreshSession() {
         const refreshToken = this.getRefreshToken();
-        if (!refreshToken) throw new Error('No refresh token available');
+        if (!refreshToken) {
+            const err = new Error('No refresh token available');
+            err.isAuthError = true;
+            throw err;
+        }
 
+        let res;
         try {
-            const res = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/api/auth/refresh`, {
+            res = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/api/auth/refresh`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ refreshToken })
             });
+        } catch (e) {
+            // Network/timeout error - do NOT call logout() here to preserve offline state
+            console.warn('Network/timeout error during session refresh:', e);
+            throw e;
+        }
 
-            if (!res.ok) throw new Error('Refresh failed');
+        if (!res.ok) {
+            // Only treat 4xx errors (except 429 rate limit) as definitive auth/validation failures.
+            if (res.status >= 400 && res.status < 500 && res.status !== 429) {
+                const err = new Error('Session expired or invalid');
+                err.isAuthError = true;
+                this.logout();
+                throw err;
+            } else {
+                throw new Error(`Server returned error status: ${res.status}`);
+            }
+        }
 
+        try {
             const data = await res.json();
             localStorage.setItem('auth_token', data.token); // Update Access Token
             // SECURITY: Always update refresh token (rotation)
@@ -200,8 +226,7 @@ class Auth {
 
             return data.token;
         } catch (e) {
-            console.error('Session refresh failed:', e);
-            this.logout();
+            console.error('Failed to parse refresh response:', e);
             throw e;
         }
     }
@@ -212,16 +237,24 @@ class Auth {
 
         if (this.isTokenExpired(token)) {
             // Token expired, try refresh
-            try {
-                // If we have a refresh token, try to use it
-                if (this.getRefreshToken()) {
+            const refreshToken = this.getRefreshToken();
+            if (refreshToken) {
+                try {
                     await this.refreshSession();
-                } else {
-                    // No refresh token, just expire
-                    // this.logout(); // Optional: let 401 handle it
+                } catch (e) {
+                    // Only logout and redirect if it's a definitive authentication error.
+                    // If it's a network error/timeout, do NOT log out (so offline mode remains functional).
+                    if (e.isAuthError) {
+                        this.logout();
+                        window.location.replace('login.html');
+                        throw new Error('Session expired');
+                    } else {
+                        console.warn('Silent refresh network failure (keeping session):', e);
+                        throw e;
+                    }
                 }
-            } catch (e) {
-                // Refresh failed
+            } else {
+                // No refresh token available, session is fully expired
                 this.logout();
                 window.location.replace('login.html');
                 throw new Error('Session expired');

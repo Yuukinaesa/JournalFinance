@@ -75,7 +75,7 @@ class MockD1Database {
             const user = this.users.find(u => u.email === email);
             result = mode === 'first' ? user : { results: [user].filter(Boolean) };
         }
-        else if (sql.includes('SELECT * FROM users WHERE id')) {
+        else if (sql.includes('FROM users WHERE id')) {
             const [id] = bindings;
             const user = this.users.find(u => u.id === id);
             result = mode === 'first' ? user : { results: [user].filter(Boolean) };

@@ -3,12 +3,12 @@
  * Generates all required PWA icon sizes from source image
  */
 
-const sharp = require('sharp');
-const path = require('path');
-const fs = require('fs');
+import sharp from 'sharp';
+import path from 'path';
+import fs from 'fs';
 
-// Source image path - the newly generated icon
-const SOURCE_IMAGE = 'C:/Users/arfan/.gemini/antigravity/brain/f2980b91-4635-4dd9-95a6-fbb3bc5b79d6/journal_finance_logo_1769544134616.png';
+// Source image path - using the version-controlled high-resolution icon
+const SOURCE_IMAGE = './public/icons/icon-1024x1024.png';
 const OUTPUT_DIR = './public/icons';
 
 // All required PWA icon sizes
@@ -55,17 +55,21 @@ async function generateIcons() {
 
     // Also copy the original as a 1024x1024 version for future use
     const originalCopyPath = path.join(OUTPUT_DIR, 'icon-1024x1024.png');
-    try {
-        await sharp(SOURCE_IMAGE)
-            .resize(1024, 1024, {
-                fit: 'cover',
-                position: 'center'
-            })
-            .png({ quality: 100 })
-            .toFile(originalCopyPath);
-        console.log(`✅ Generated: icon-1024x1024.png (master copy)`);
-    } catch (error) {
-        console.error(`❌ Failed to create master copy:`, error.message);
+    if (path.resolve(SOURCE_IMAGE) !== path.resolve(originalCopyPath)) {
+        try {
+            await sharp(SOURCE_IMAGE)
+                .resize(1024, 1024, {
+                    fit: 'cover',
+                    position: 'center'
+                })
+                .png({ quality: 100 })
+                .toFile(originalCopyPath);
+            console.log(`✅ Generated: icon-1024x1024.png (master copy)`);
+        } catch (error) {
+            console.error(`❌ Failed to create master copy:`, error.message);
+        }
+    } else {
+        console.log(`ℹ️ Source is already the master copy, skipping duplicate write.`);
     }
 
     // Generate favicon.ico equivalent (32x32 as PNG for modern browsers)
