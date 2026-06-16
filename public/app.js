@@ -370,7 +370,7 @@ window.app = {
                     if (imgData) {
                         images.push({ entryId: entry.id, data: imgData });
                     }
-                } catch (err) {
+                } catch {
                     console.warn('Failed to backup image for', entry.id);
                 }
 
@@ -491,7 +491,6 @@ window.app = {
     async processRestoreMain(json) {
         try {
             let entriesToRestore = [];
-            let imagesToRestore = [];
 
             // Detect & Normalize Format
             if (Array.isArray(json)) {
@@ -1521,7 +1520,7 @@ window.app = {
                     document.getElementById('uploadPlaceholder').style.display = 'none';
                     document.getElementById('previewContainer').style.display = 'block';
                 }
-            }).catch(err => {
+            }).catch(() => {
                 this.clearImage();
             });
         } else {
@@ -1923,7 +1922,6 @@ window.app = {
 
             const yesBtn = document.getElementById('gConfirmYesBtn');
             const noBtn = document.getElementById('gConfirmCancelBtn');
-            const overlay = el; // Clicking outside? optional logic
 
             const cleanup = () => {
                 el.classList.remove('open');

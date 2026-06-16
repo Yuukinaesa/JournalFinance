@@ -52,7 +52,8 @@ export default [
             "no-undef": "error",
             "no-redeclare": "error",
             "no-dupe-keys": "error",
-            "no-unreachable": "error"
+            "no-unreachable": "error",
+            "no-unused-vars": ["error", { "argsIgnorePattern": "^_" }]
         }
     }
 ];

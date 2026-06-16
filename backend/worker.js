@@ -39,7 +39,7 @@ const CONSTANTS = {
 };
 
 export default {
-    async fetch(request, env, ctx) {
+    async fetch(request, env, _ctx) {
         const url = new URL(request.url);
         const path = url.pathname;
         const method = request.method;
@@ -279,7 +279,7 @@ export default {
 
                         const preferences = row && row.preferences ? JSON.parse(row.preferences) : {};
                         return new Response(JSON.stringify({ success: true, preferences }), { headers: corsHeaders });
-                    } catch (e) {
+                    } catch {
                         return new Response(JSON.stringify({ error: 'Failed to fetch preferences' }), { status: 500, headers: corsHeaders });
                     }
                 }
@@ -306,7 +306,7 @@ export default {
                             .run();
 
                         return new Response(JSON.stringify({ success: true, preferences: JSON.parse(prefString) }), { headers: corsHeaders });
-                    } catch (e) {
+                    } catch {
                         return new Response(JSON.stringify({ error: 'Invalid data' }), { status: 400, headers: corsHeaders });
                     }
                 }
@@ -658,7 +658,7 @@ export default {
                 id: user.id,
                 email: user.email,
                 username: user.username,
-                preferences: (() => { try { return user.preferences ? JSON.parse(user.preferences) : null; } catch(e) { return null; } })()
+                preferences: (() => { try { return user.preferences ? JSON.parse(user.preferences) : null; } catch { return null; } })()
             }
         }), { headers });
     },
@@ -834,7 +834,6 @@ export default {
             const currentVersion = user.token_version || 1;
             // Backward compatibility: If payload has no version ('v'), accept if DB is 1 or null.
             // But if DB > 1, reject legacy tokens.
-            const payloadVersion = payload.v || 0;
 
             // Strict check: if payload has version, it must match.
             // If payload has NO version (old token), it is valid ONLY if DB version is default (1 or null)
@@ -847,7 +846,7 @@ export default {
             }
 
             return user;
-        } catch (e) { return null; }
+        } catch { return null; }
     },
 
 
@@ -1061,7 +1060,7 @@ export default {
         try {
             const headerObj = JSON.parse(base64UrlDecode(header));
             if (headerObj.alg !== 'HS256') throw new Error('Invalid algorithm');
-        } catch (e) {
+        } catch {
             throw new Error('Invalid token header');
         }
 
@@ -1070,7 +1069,7 @@ export default {
         let payload;
         try {
             payload = JSON.parse(base64UrlDecode(body));
-        } catch (e) {
+        } catch {
             throw new Error('Malformed token payload');
         }
         if (!payload || typeof payload !== 'object') throw new Error('Invalid payload');
