@@ -67,10 +67,17 @@ class Auth {
     }
 
     static isTokenExpired(token) {
-        // Session duration is determined by the JWT 'exp' claim (configured as 90 days in backend)
         try {
-            const base64Url = token.split('.')[1];
-            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+            if (!token || typeof token !== 'string') return true;
+            const parts = token.split('.');
+            if (parts.length !== 3) return true;
+
+            const base64Url = parts[1];
+            let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+            // Restore base64 padding
+            const padLength = (4 - (base64.length % 4)) % 4;
+            base64 += '='.repeat(padLength);
+
             const jsonPayload = decodeURIComponent(atob(base64).split('').map(function (c) {
                 return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
             }).join(''));
@@ -79,7 +86,10 @@ class Auth {
 
             // Check if expired (exp is in seconds)
             if (!payload.exp) return false; // No expiry set?
-            return Date.now() >= payload.exp * 1000;
+            
+            // Add a 60-second buffer to account for clock skew and network latency
+            const bufferMs = 60 * 1000;
+            return Date.now() + bufferMs >= payload.exp * 1000;
         } catch (e) {
             console.warn('Error checking token expiry:', e);
             return true; // Assume expired on error

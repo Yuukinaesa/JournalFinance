@@ -1100,7 +1100,6 @@ window.app = {
     // --- Logic ---
 
     debounceTimer: null,
-    deferredPrompt: null,
     excludedExportIds: new Set(),
     excludedTxtIds: new Set(),
 
@@ -1121,7 +1120,7 @@ window.app = {
         const isIOS = (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.userAgent.includes("Mac") && "ontouchend" in document)) && !window.MSStream;
 
         if (isIOS) {
-            alert('Untuk menginstall di iOS:\n1. Tap tombol Share (ikon kotak dengan panah ke atas)\n2. Pilih "Add to Home Screen"');
+            this.showAlert('Panduan Instalasi iOS', 'Untuk menginstall di iOS:\n1. Tap tombol Share (ikon kotak dengan panah ke atas)\n2. Pilih "Add to Home Screen"');
             return;
         }
 

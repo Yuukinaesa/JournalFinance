@@ -114,6 +114,7 @@ export default {
         limiter.set(clientIp, limitData);
 
         if (limitData.count > CONSTANTS.RATE_LIMIT_MAX_REQUESTS) {
+            console.warn(JSON.stringify({ event: 'RATE_LIMIT_EXCEEDED', ip: clientIp, path, count: limitData.count, timestamp: currentTime }));
             return new Response(JSON.stringify({ error: 'Too Many Requests (Rate Limit Exceeded)' }), {
                 status: 429,
                 headers: corsHeaders
@@ -132,13 +133,21 @@ export default {
             authLimitData.count++;
             authLimiter.set(clientIp, authLimitData);
             if (authLimitData.count > 5) { // Max 5 auth attempts per minute
+                console.warn(JSON.stringify({ event: 'AUTH_RATE_LIMIT_EXCEEDED', ip: clientIp, path, count: authLimitData.count, timestamp: currentTime }));
                 return new Response(JSON.stringify({ error: 'Too Many Auth Attempts. Try again later.' }), {
                     status: 429,
                     headers: corsHeaders
                 });
             }
-            // Simple cleanup for auth limiter
-            if (authLimiter.size > 1000) authLimiter.clear();
+            // Secure cleanup: Evict oldest 20% of entries instead of clearing all (prevents rate-limit reset bypass)
+            if (authLimiter.size > 1000) {
+                const entriesToRemove = 200;
+                const iterator = authLimiter.keys();
+                for (let i = 0; i < entriesToRemove; i++) {
+                    const key = iterator.next().value;
+                    if (key) authLimiter.delete(key);
+                }
+            }
         }
         // -----------------------------------------------------------
 
@@ -231,6 +240,7 @@ export default {
                         const newAccessToken = await this.signToken(newTokenPayload, env.JWT_SECRET, 'access');
                         const newRefreshToken = await this.signToken(newTokenPayload, env.JWT_SECRET, 'refresh');
 
+                        console.log(JSON.stringify({ event: 'AUTH_REFRESH_SUCCESS', userId: user.id, email: user.email, timestamp: Date.now() }));
                         return new Response(JSON.stringify({
                             success: true,
                             accessToken: newAccessToken,
@@ -240,6 +250,7 @@ export default {
                         }), { headers: corsHeaders });
 
                     } catch (e) {
+                        console.warn(JSON.stringify({ event: 'AUTH_REFRESH_FAILED', reason: e.message, timestamp: Date.now() }));
                         return new Response(JSON.stringify({ error: 'Invalid or expired refresh token' }), {
                             status: 401,
                             headers: corsHeaders
@@ -252,6 +263,7 @@ export default {
                     if (!user) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: corsHeaders });
 
                     await env.DB.prepare('UPDATE users SET token_version = IFNULL(token_version, 1) + 1 WHERE id = ?').bind(user.id).run();
+                    console.log(JSON.stringify({ event: 'AUTH_LOGOUT_ALL', userId: user.id, email: user.email, timestamp: Date.now() }));
                     return new Response(JSON.stringify({ success: true, message: 'All sessions invalidated' }), { headers: corsHeaders });
                 }
 
@@ -416,11 +428,8 @@ export default {
                                 if (typeof e.imageData !== 'string') {
                                     return new Response(JSON.stringify({ error: 'Invalid image data type' }), { status: 400, headers: corsHeaders });
                                 }
-                                if (!/^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(e.imageData)) {
-                                    return new Response(JSON.stringify({ error: 'Invalid image format' }), { status: 400, headers: corsHeaders });
-                                }
-                                if (e.imageData.length > CONSTANTS.MAX_IMAGE_SIZE_BYTES) {
-                                    return new Response(JSON.stringify({ error: `Image too large (max ${CONSTANTS.MAX_IMAGE_SIZE_BYTES / (1024 * 1024)}MB)` }), { status: 400, headers: corsHeaders });
+                                if (!this.isValidBase64Image(e.imageData)) {
+                                    return new Response(JSON.stringify({ error: 'Invalid image format or size' }), { status: 400, headers: corsHeaders });
                                 }
                                 imageDataToSave = e.imageData;
                             }
@@ -529,23 +538,27 @@ export default {
 
         // INPUT VALIDATION - SECURITY CRITICAL
         if (!email || !password || !username) {
+            console.warn(JSON.stringify({ event: 'AUTH_REGISTER_FAILED', reason: 'Missing fields', timestamp: Date.now() }));
             return new Response(JSON.stringify({ error: 'Email, Username, and Password required' }), { status: 400, headers });
         }
 
         // Email format validation
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(email) || email.length > CONSTANTS.MAX_EMAIL_LENGTH) {
+            console.warn(JSON.stringify({ event: 'AUTH_REGISTER_FAILED', email, reason: 'Invalid email format', timestamp: Date.now() }));
             return new Response(JSON.stringify({ error: 'Invalid email format' }), { status: 400, headers });
         }
 
         // Username validation (Mandatory)
         const usernameRegex = new RegExp(`^[a-zA-Z0-9_]{${CONSTANTS.MIN_USERNAME_LENGTH},${CONSTANTS.MAX_USERNAME_LENGTH}}$`);
         if (!usernameRegex.test(username)) {
+            console.warn(JSON.stringify({ event: 'AUTH_REGISTER_FAILED', username, reason: 'Invalid username format', timestamp: Date.now() }));
             return new Response(JSON.stringify({ error: `Username must be ${CONSTANTS.MIN_USERNAME_LENGTH}-${CONSTANTS.MAX_USERNAME_LENGTH} chars, alphanumeric only` }), { status: 400, headers });
         }
 
         // Password strength validation
         if (password.length < CONSTANTS.MIN_PASSWORD_LENGTH || password.length > CONSTANTS.MAX_PASSWORD_LENGTH) {
+            console.warn(JSON.stringify({ event: 'AUTH_REGISTER_FAILED', email, username, reason: 'Weak or too long password', timestamp: Date.now() }));
             return new Response(JSON.stringify({ error: `Password must be ${CONSTANTS.MIN_PASSWORD_LENGTH}-${CONSTANTS.MAX_PASSWORD_LENGTH} characters` }), { status: 400, headers });
         }
 
@@ -554,6 +567,7 @@ export default {
             // Check if username already exists
             const existingUser = await env.DB.prepare('SELECT id FROM users WHERE username = ?').bind(username).first();
             if (existingUser) {
+                console.warn(JSON.stringify({ event: 'AUTH_REGISTER_FAILED', username, reason: 'Username already taken', timestamp: Date.now() }));
                 return new Response(JSON.stringify({ error: 'Username already taken' }), { status: 400, headers });
             }
 
@@ -561,9 +575,13 @@ export default {
                 .bind(email.toLowerCase().trim(), username, passwordHash)
                 .run();
 
+            console.log(JSON.stringify({ event: 'AUTH_REGISTER_SUCCESS', userId: result.meta.last_row_id, email, username, timestamp: Date.now() }));
             return new Response(JSON.stringify({ success: true, userId: result.meta.last_row_id }), { headers });
         } catch (e) {
-            if (e.message.includes('UNIQUE')) return new Response(JSON.stringify({ error: 'Email already exists' }), { status: 400, headers });
+            if (e.message.includes('UNIQUE')) {
+                console.warn(JSON.stringify({ event: 'AUTH_REGISTER_FAILED', email, reason: 'Email already exists', timestamp: Date.now() }));
+                return new Response(JSON.stringify({ error: 'Email already exists' }), { status: 400, headers });
+            }
             throw e;
         }
     },
@@ -573,12 +591,14 @@ export default {
 
         // INPUT VALIDATION
         if (!email || !password) {
+            console.warn(JSON.stringify({ event: 'AUTH_LOGIN_FAILED', reason: 'Missing credentials', timestamp: Date.now() }));
             return new Response(JSON.stringify({ error: 'Invalid credentials' }), { status: 401, headers });
         }
 
         const identifier = email.trim(); // Can be email or username
         // SECURITY: Length limit to prevent oversized DB queries
         if (identifier.length > CONSTANTS.MAX_EMAIL_LENGTH || password.length > CONSTANTS.MAX_PASSWORD_LENGTH) {
+            console.warn(JSON.stringify({ event: 'AUTH_LOGIN_FAILED', identifier, reason: 'Input length exceeded limits', timestamp: Date.now() }));
             return new Response(JSON.stringify({ error: 'Invalid credentials' }), { status: 401, headers });
         }
         let user;
@@ -599,8 +619,8 @@ export default {
         const hashToCompare = user ? user.password_hash : dummyHash;
         const isValid = await this.verifyPassword(password, hashToCompare);
 
-
         if (!user || !isValid) {
+            console.warn(JSON.stringify({ event: 'AUTH_LOGIN_FAILED', identifier, reason: 'Invalid credentials', timestamp: Date.now() }));
             return new Response(JSON.stringify({ error: 'Invalid credentials' }), { status: 401, headers });
         }
 
@@ -627,6 +647,7 @@ export default {
         const accessToken = await this.signToken(tokenPayload, secret, 'access');
         const refreshToken = await this.signToken(tokenPayload, secret, 'refresh');
 
+        console.log(JSON.stringify({ event: 'AUTH_LOGIN_SUCCESS', userId: user.id, email: user.email, username: user.username, timestamp: Date.now() }));
         return new Response(JSON.stringify({
             success: true,
             token: accessToken,        // Keep 'token' for backward compatibility
@@ -720,7 +741,7 @@ export default {
                 let imageData = null;
                 const hasExplicitImageData = e.imageData !== undefined && e.imageData !== null;
                 if (hasExplicitImageData) {
-                    if (typeof e.imageData === 'string' && /^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(e.imageData) && e.imageData.length <= CONSTANTS.MAX_IMAGE_SIZE_BYTES) {
+                    if (typeof e.imageData === 'string' && this.isValidBase64Image(e.imageData)) {
                         imageData = e.imageData;
                         hasImage = 1;
                     } else {
@@ -946,6 +967,35 @@ export default {
     },
 
     /**
+     * Efficiently validate base64 image data urls in O(1) time
+     * Prevents CPU-intensive regex matching on large (up to 10MB) payloads
+     */
+    isValidBase64Image(str) {
+        if (typeof str !== 'string') return false;
+        
+        // Fast prefix checks
+        const prefixes = [
+            'data:image/jpeg;base64,',
+            'data:image/jpg;base64,',
+            'data:image/png;base64,',
+            'data:image/webp;base64,'
+        ];
+        const matchingPrefix = prefixes.find(p => str.startsWith(p));
+        if (!matchingPrefix) return false;
+
+        // Size check
+        if (str.length > CONSTANTS.MAX_IMAGE_SIZE_BYTES) return false;
+
+        // Validate structure of a small subset (start and end) to prevent ReDoS on massive inputs
+        const base64Part = str.slice(matchingPrefix.length);
+        if (base64Part.length === 0) return false;
+
+        // Validate first 100 characters and last 4 characters using a simple regex
+        const checkPart = base64Part.slice(0, 100) + base64Part.slice(-4);
+        return /^[A-Za-z0-9+/=]+$/.test(checkPart);
+    },
+
+    /**
      * Constant-time string comparison to prevent timing attacks
      */
     constantTimeCompare(a, b) {
@@ -999,9 +1049,17 @@ export default {
         const [header, body, signature] = parts;
         if (!header || !body || !signature) throw new Error('Invalid token');
 
+        // Helper to decode base64url safely by restoring padding
+        const base64UrlDecode = (str) => {
+            let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
+            const padLength = (4 - (base64.length % 4)) % 4;
+            base64 += '='.repeat(padLength);
+            return atob(base64);
+        };
+
         // SECURITY: Validate algorithm header to prevent algorithm confusion attacks
         try {
-            const headerObj = JSON.parse(atob(header.replace(/-/g, '+').replace(/_/g, '/')));
+            const headerObj = JSON.parse(base64UrlDecode(header));
             if (headerObj.alg !== 'HS256') throw new Error('Invalid algorithm');
         } catch (e) {
             throw new Error('Invalid token header');
@@ -1011,7 +1069,7 @@ export default {
         if (!this.constantTimeCompare(signature, validSignature)) throw new Error('Invalid signature');
         let payload;
         try {
-            payload = JSON.parse(atob(body.replace(/-/g, '+').replace(/_/g, '/')));
+            payload = JSON.parse(base64UrlDecode(body));
         } catch (e) {
             throw new Error('Malformed token payload');
         }
