@@ -320,7 +320,7 @@ const ConnectionMonitor = {
      * @param {Object} metadata - Metadata for retry/persistence
      * @returns {Promise}
      */
-    async withConnectionGuard(operation, metadata = {}) {
+    async withConnectionGuard(operation, _metadata = {}) {
         // Check connection first
         if (!this.isOnline) {
             throw new ConnectionError('OFFLINE', 'Tidak ada koneksi internet. Operasi tidak dapat dilakukan dalam mode offline.');

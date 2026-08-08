@@ -10,7 +10,7 @@
     "test": "node tests/worker.test.mjs",
     "test:frontend": "node tests/validate_frontend.js",
     "test:syntax": "node --check backend/worker.js public/app.js public/auth.js",
-    "lint": "echo 'No linter configured yet'",
+    "lint": "eslint .",
     "generate-icons": "node generate-icons.js"
   },
   "keywords": [

@@ -114,7 +114,7 @@ export default {
         limiter.set(clientIp, limitData);
 
         if (limitData.count > CONSTANTS.RATE_LIMIT_MAX_REQUESTS) {
-            console.warn(JSON.stringify({ event: 'RATE_LIMIT_EXCEEDED', ip: clientIp, path, count: limitData.count, timestamp: currentTime }));
+            console.warn(JSON.stringify({ event: 'RATE_LIMIT_EXCEEDED', ip: this.maskIP(clientIp), path, count: limitData.count, timestamp: currentTime }));
             return new Response(JSON.stringify({ error: 'Too Many Requests (Rate Limit Exceeded)' }), {
                 status: 429,
                 headers: corsHeaders
@@ -133,7 +133,7 @@ export default {
             authLimitData.count++;
             authLimiter.set(clientIp, authLimitData);
             if (authLimitData.count > 5) { // Max 5 auth attempts per minute
-                console.warn(JSON.stringify({ event: 'AUTH_RATE_LIMIT_EXCEEDED', ip: clientIp, path, count: authLimitData.count, timestamp: currentTime }));
+                console.warn(JSON.stringify({ event: 'AUTH_RATE_LIMIT_EXCEEDED', ip: this.maskIP(clientIp), path, count: authLimitData.count, timestamp: currentTime }));
                 return new Response(JSON.stringify({ error: 'Too Many Auth Attempts. Try again later.' }), {
                     status: 429,
                     headers: corsHeaders
@@ -240,7 +240,7 @@ export default {
                         const newAccessToken = await this.signToken(newTokenPayload, env.JWT_SECRET, 'access');
                         const newRefreshToken = await this.signToken(newTokenPayload, env.JWT_SECRET, 'refresh');
 
-                        console.log(JSON.stringify({ event: 'AUTH_REFRESH_SUCCESS', userId: user.id, email: user.email, timestamp: Date.now() }));
+                        console.log(JSON.stringify({ event: 'AUTH_REFRESH_SUCCESS', userId: user.id, email: this.maskEmail(user.email), timestamp: Date.now() }));
                         return new Response(JSON.stringify({
                             success: true,
                             accessToken: newAccessToken,
@@ -263,7 +263,7 @@ export default {
                     if (!user) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: corsHeaders });
 
                     await env.DB.prepare('UPDATE users SET token_version = IFNULL(token_version, 1) + 1 WHERE id = ?').bind(user.id).run();
-                    console.log(JSON.stringify({ event: 'AUTH_LOGOUT_ALL', userId: user.id, email: user.email, timestamp: Date.now() }));
+                    console.log(JSON.stringify({ event: 'AUTH_LOGOUT_ALL', userId: user.id, email: this.maskEmail(user.email), timestamp: Date.now() }));
                     return new Response(JSON.stringify({ success: true, message: 'All sessions invalidated' }), { headers: corsHeaders });
                 }
 
@@ -379,7 +379,7 @@ export default {
                         if (!e.title || typeof e.title !== 'string' || e.title.trim().length === 0 || e.title.length > CONSTANTS.MAX_TITLE_LENGTH) {
                             return new Response(JSON.stringify({ error: `Title required (max ${CONSTANTS.MAX_TITLE_LENGTH} chars)` }), { status: 400, headers: corsHeaders });
                         }
-                        const title = e.title.trim().replace(/[\x00-\x1F\x7F]/g, '');
+                        const title = this.sanitizeInput(e.title.trim());
 
                         // 4. Type Validation (whitelist)
                         const validTypes = ['saham', 'kripto', 'barang', 'peristiwa', 'lainnya'];
@@ -402,7 +402,7 @@ export default {
                             if (typeof e.reason !== 'string' || e.reason.length > CONSTANTS.MAX_REASON_LENGTH) {
                                 return new Response(JSON.stringify({ error: `Reason too long (max ${CONSTANTS.MAX_REASON_LENGTH})` }), { status: 400, headers: corsHeaders });
                             }
-                            reason = e.reason;
+                            reason = this.sanitizeInput(e.reason);
                         }
 
                         // 7. Boolean Validation
@@ -545,20 +545,20 @@ export default {
         // Email format validation
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(email) || email.length > CONSTANTS.MAX_EMAIL_LENGTH) {
-            console.warn(JSON.stringify({ event: 'AUTH_REGISTER_FAILED', email, reason: 'Invalid email format', timestamp: Date.now() }));
+            console.warn(JSON.stringify({ event: 'AUTH_REGISTER_FAILED', email: this.maskEmail(email), reason: 'Invalid email format', timestamp: Date.now() }));
             return new Response(JSON.stringify({ error: 'Invalid email format' }), { status: 400, headers });
         }
 
         // Username validation (Mandatory)
         const usernameRegex = new RegExp(`^[a-zA-Z0-9_]{${CONSTANTS.MIN_USERNAME_LENGTH},${CONSTANTS.MAX_USERNAME_LENGTH}}$`);
         if (!usernameRegex.test(username)) {
-            console.warn(JSON.stringify({ event: 'AUTH_REGISTER_FAILED', username, reason: 'Invalid username format', timestamp: Date.now() }));
+            console.warn(JSON.stringify({ event: 'AUTH_REGISTER_FAILED', username: this.maskUsername(username), reason: 'Invalid username format', timestamp: Date.now() }));
             return new Response(JSON.stringify({ error: `Username must be ${CONSTANTS.MIN_USERNAME_LENGTH}-${CONSTANTS.MAX_USERNAME_LENGTH} chars, alphanumeric only` }), { status: 400, headers });
         }
 
         // Password strength validation
         if (password.length < CONSTANTS.MIN_PASSWORD_LENGTH || password.length > CONSTANTS.MAX_PASSWORD_LENGTH) {
-            console.warn(JSON.stringify({ event: 'AUTH_REGISTER_FAILED', email, username, reason: 'Weak or too long password', timestamp: Date.now() }));
+            console.warn(JSON.stringify({ event: 'AUTH_REGISTER_FAILED', email: this.maskEmail(email), username: this.maskUsername(username), reason: 'Weak or too long password', timestamp: Date.now() }));
             return new Response(JSON.stringify({ error: `Password must be ${CONSTANTS.MIN_PASSWORD_LENGTH}-${CONSTANTS.MAX_PASSWORD_LENGTH} characters` }), { status: 400, headers });
         }
 
@@ -567,7 +567,7 @@ export default {
             // Check if username already exists
             const existingUser = await env.DB.prepare('SELECT id FROM users WHERE username = ?').bind(username).first();
             if (existingUser) {
-                console.warn(JSON.stringify({ event: 'AUTH_REGISTER_FAILED', username, reason: 'Username already taken', timestamp: Date.now() }));
+                console.warn(JSON.stringify({ event: 'AUTH_REGISTER_FAILED', username: this.maskUsername(username), reason: 'Username already taken', timestamp: Date.now() }));
                 return new Response(JSON.stringify({ error: 'Username already taken' }), { status: 400, headers });
             }
 
@@ -575,11 +575,11 @@ export default {
                 .bind(email.toLowerCase().trim(), username, passwordHash)
                 .run();
 
-            console.log(JSON.stringify({ event: 'AUTH_REGISTER_SUCCESS', userId: result.meta.last_row_id, email, username, timestamp: Date.now() }));
+            console.log(JSON.stringify({ event: 'AUTH_REGISTER_SUCCESS', userId: result.meta.last_row_id, email: this.maskEmail(email), username: this.maskUsername(username), timestamp: Date.now() }));
             return new Response(JSON.stringify({ success: true, userId: result.meta.last_row_id }), { headers });
         } catch (e) {
             if (e.message.includes('UNIQUE')) {
-                console.warn(JSON.stringify({ event: 'AUTH_REGISTER_FAILED', email, reason: 'Email already exists', timestamp: Date.now() }));
+                console.warn(JSON.stringify({ event: 'AUTH_REGISTER_FAILED', email: this.maskEmail(email), reason: 'Email already exists', timestamp: Date.now() }));
                 return new Response(JSON.stringify({ error: 'Email already exists' }), { status: 400, headers });
             }
             throw e;
@@ -598,7 +598,7 @@ export default {
         const identifier = email.trim(); // Can be email or username
         // SECURITY: Length limit to prevent oversized DB queries
         if (identifier.length > CONSTANTS.MAX_EMAIL_LENGTH || password.length > CONSTANTS.MAX_PASSWORD_LENGTH) {
-            console.warn(JSON.stringify({ event: 'AUTH_LOGIN_FAILED', identifier, reason: 'Input length exceeded limits', timestamp: Date.now() }));
+            console.warn(JSON.stringify({ event: 'AUTH_LOGIN_FAILED', identifier: this.maskIdentifier(identifier), reason: 'Input length exceeded limits', timestamp: Date.now() }));
             return new Response(JSON.stringify({ error: 'Invalid credentials' }), { status: 401, headers });
         }
         let user;
@@ -607,9 +607,7 @@ export default {
             // It's an email
             user = await env.DB.prepare('SELECT * FROM users WHERE email = ?').bind(identifier.toLowerCase()).first();
         } else {
-            // It's a username (case-sensitive or insensitive? Let's go with exact match or lowercase if we enforced it. 
-            // Better to assume username is stored exactly as is, but let's query carefully.
-            // For now, let's assume exact match for username.)
+            // It's a username
             user = await env.DB.prepare('SELECT * FROM users WHERE username = ?').bind(identifier).first();
         }
 
@@ -620,7 +618,7 @@ export default {
         const isValid = await this.verifyPassword(password, hashToCompare);
 
         if (!user || !isValid) {
-            console.warn(JSON.stringify({ event: 'AUTH_LOGIN_FAILED', identifier, reason: 'Invalid credentials', timestamp: Date.now() }));
+            console.warn(JSON.stringify({ event: 'AUTH_LOGIN_FAILED', identifier: this.maskIdentifier(identifier), reason: 'Invalid credentials', timestamp: Date.now() }));
             return new Response(JSON.stringify({ error: 'Invalid credentials' }), { status: 401, headers });
         }
 
@@ -647,7 +645,7 @@ export default {
         const accessToken = await this.signToken(tokenPayload, secret, 'access');
         const refreshToken = await this.signToken(tokenPayload, secret, 'refresh');
 
-        console.log(JSON.stringify({ event: 'AUTH_LOGIN_SUCCESS', userId: user.id, email: user.email, username: user.username, timestamp: Date.now() }));
+        console.log(JSON.stringify({ event: 'AUTH_LOGIN_SUCCESS', userId: user.id, email: this.maskEmail(user.email), username: this.maskUsername(user.username), timestamp: Date.now() }));
         return new Response(JSON.stringify({
             success: true,
             token: accessToken,        // Keep 'token' for backward compatibility
@@ -847,6 +845,46 @@ export default {
 
             return user;
         } catch { return null; }
+    },
+
+    /**
+     * PII SANITIZATION & LOG MASKING (GDPR / ISO 27001)
+     */
+    maskEmail(email) {
+        if (!email || typeof email !== 'string') return '***';
+        const parts = email.split('@');
+        if (parts.length !== 2) return '***';
+        const [local, domain] = parts;
+        const maskedLocal = local.length > 2 ? local[0] + '***' + local[local.length - 1] : local[0] + '***';
+        return `${maskedLocal}@${domain}`;
+    },
+
+    maskUsername(username) {
+        if (!username || typeof username !== 'string') return '***';
+        if (username.length <= 2) return username[0] + '***';
+        return username[0] + '***' + username[username.length - 1];
+    },
+
+    maskIP(ip) {
+        if (!ip || typeof ip !== 'string') return 'xxx.xxx.xxx.xxx';
+        if (ip.includes('.')) {
+            const parts = ip.split('.');
+            if (parts.length === 4) return `${parts[0]}.${parts[1]}.${parts[2]}.xxx`;
+        } else if (ip.includes(':')) {
+            const parts = ip.split(':');
+            return `${parts.slice(0, 3).join(':')}:xxxx:xxxx:xxxx`;
+        }
+        return 'xxx.xxx.xxx.xxx';
+    },
+
+    maskIdentifier(identifier) {
+        if (!identifier || typeof identifier !== 'string') return '***';
+        return identifier.includes('@') ? this.maskEmail(identifier) : this.maskUsername(identifier);
+    },
+
+    sanitizeInput(str) {
+        if (typeof str !== 'string') return str;
+        return str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
     },
 
 

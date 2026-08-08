@@ -293,7 +293,7 @@ class OptimizedJournalDB {
                     quotaInGB: (estimate.quota / (1024 * 1024 * 1024)).toFixed(2),
                     percentUsed: ((estimate.usage / estimate.quota) * 100).toFixed(2)
                 };
-            } catch (e) {
+            } catch (_e) {
                 return null;
             }
         }

@@ -81,6 +81,9 @@ window.app = {
             // SHOW USER INFO
             this.renderHeaderUser();
 
+            // Show skeleton loading state
+            this.showLoadingSkeletons();
+
             // --- Cloud Init (with Connection Guard) ---
             this.showProgress(10, 'Memuat Data', 'Menghubungkan ke server...');
 
@@ -1634,6 +1637,22 @@ window.app = {
     },
 
     // --- Rendering ---
+
+    showLoadingSkeletons() {
+        const listContainer = document.getElementById('journalList');
+        if (!listContainer) return;
+        listContainer.innerHTML = Array(3).fill(0).map(() => `
+            <div class="journal-card skeleton-card" style="opacity: 0.7; pointer-events: none;">
+                <div class="card-header">
+                    <div style="width: 60%; height: 20px; background: var(--border-color); border-radius: 4px; margin-bottom: 8px;"></div>
+                    <div style="width: 30%; height: 16px; background: var(--border-color); border-radius: 4px;"></div>
+                </div>
+                <div class="reason-box" style="margin-top: 12px;">
+                    <div style="width: 100%; height: 40px; background: var(--border-color); border-radius: 4px;"></div>
+                </div>
+            </div>
+        `).join('');
+    },
 
     async renderList() {
         if (!Array.isArray(this.data)) {

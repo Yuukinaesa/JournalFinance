@@ -7,7 +7,7 @@ if (!globalThis.Response) {
     throw new Error("Node.js version too old. Please use Node 18+");
 }
 
-class MockD1Result {
+class _MockD1Result {
     constructor(data = [], meta = { last_row_id: 1 }) {
         this.results = data;
         this.meta = meta;
@@ -226,6 +226,14 @@ async function runTests() {
             }
         }
         assert.ok(blocked, "Should eventually return 429 Too Many Requests");
+    });
+
+    // 7. PII MASKING & INPUT SANITIZATION
+    await test("PII Log Masking & Input Sanitization", async () => {
+        assert.equal(worker.maskEmail('test@example.com'), 't***t@example.com');
+        assert.equal(worker.maskUsername('tester'), 't***r');
+        assert.equal(worker.maskIP('192.168.1.50'), '192.168.1.xxx');
+        assert.equal(worker.sanitizeInput('Clean\x00Control\x07Chars'), 'CleanControlChars');
     });
 
     console.log(`\n🎉 Tests Completed: ${passed} Passed, ${failed} Failed`);

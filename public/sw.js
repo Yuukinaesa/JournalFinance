@@ -148,7 +148,7 @@ async function networkFirstStrategy(request, cacheName, maxSize) {
         }
 
         return networkResponse;
-    } catch (error) {
+    } catch (_error) {
         // Network failed, try cache
         const cachedResponse = await caches.match(request);
 
@@ -192,7 +192,7 @@ async function cacheFirstStrategy(request, cacheName, maxSize) {
         }
 
         return networkResponse;
-    } catch (error) {
+    } catch (_error) {
         return new Response('Resource not available offline', {
             status: 503,
             statusText: 'Service Unavailable'
@@ -232,7 +232,7 @@ self.addEventListener('message', (event) => {
             console.warn('SW: Rejecting cross-origin message from:', sourceOrigin);
             return;
         }
-    } catch (e) {
+    } catch (_e) {
         console.warn('SW: Invalid source URL, rejecting message');
         return;
     }

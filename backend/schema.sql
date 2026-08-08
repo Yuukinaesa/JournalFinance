@@ -34,3 +34,8 @@ CREATE TABLE IF NOT EXISTS entries (
     last_synced INTEGER DEFAULT (strftime('%s', 'now')),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
+
+-- Indeks Performa Query
+CREATE INDEX IF NOT EXISTS idx_entries_user_id ON entries(user_id);
+CREATE INDEX IF NOT EXISTS idx_entries_date ON entries(date);
+

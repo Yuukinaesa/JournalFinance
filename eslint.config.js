@@ -4,7 +4,7 @@ export default [
             ecmaVersion: 2022,
             sourceType: "module",
             globals: {
-                // Browser globals
+                // Browser / Web API globals
                 window: "readonly",
                 document: "readonly",
                 localStorage: "readonly",
@@ -20,6 +20,7 @@ export default [
                 clearTimeout: "readonly",
                 console: "readonly",
                 Blob: "readonly",
+                File: "readonly",
                 URL: "readonly",
                 FileReader: "readonly",
                 Headers: "readonly",
@@ -33,11 +34,13 @@ export default [
                 TextEncoder: "readonly",
                 TextDecoder: "readonly",
                 Intl: "readonly",
+                AbortController: "readonly",
 
-                // Node/Worker globals
+                // Node / Web Worker globals
                 globalThis: "readonly",
                 process: "readonly",
                 module: "readonly",
+                importScripts: "readonly",
 
                 // App globals
                 Auth: "readonly",
@@ -53,7 +56,7 @@ export default [
             "no-redeclare": "error",
             "no-dupe-keys": "error",
             "no-unreachable": "error",
-            "no-unused-vars": ["error", { "argsIgnorePattern": "^_" }]
+            "no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_", "caughtErrorsIgnorePattern": "^_" }]
         }
     }
 ];

@@ -91,7 +91,7 @@ async function handleBackup() {
 
         // 1. Entries
         postProgress('backup', 0, 100, 'fetching_entries');
-        entries = await db.getAllEntries((c, t) => {
+        entries = await db.getAllEntries((_c, _t) => {
             // Map entry progress 0-20%
             // getAll() is instant mostly, so this might jump to 100 immediately
         });
@@ -224,8 +224,6 @@ async function handleRestore(fileOrData) {
 
         const totalEntries = json.entries.length;
         const totalImages = (json.images || []).length;
-        const totalItems = totalEntries + totalImages;
-        let processed = 0;
 
         // 1. Save Restore Point (Persistence)
         postProgress('restore', 5, 100, 'saving_checkpoint');
@@ -239,7 +237,7 @@ async function handleRestore(fileOrData) {
         // 3. Restore Entries
         if (totalEntries > 0) {
             postProgress('restore', 15, 100, 'restoring_entries');
-            await db.bulkPut('entries', json.entries, (c, t) => {
+            await db.bulkPut('entries', json.entries, (c, _t) => {
                 const pct = 15 + (c / totalEntries * 35); // 15-50%
                 postProgress('restore', pct, 100, 'restoring_entries');
             });
@@ -250,7 +248,7 @@ async function handleRestore(fileOrData) {
             postProgress('restore', 50, 100, 'restoring_images');
             const imageChunks = json.images.filter(img => img.data && img.data.startsWith('data:image/'));
 
-            await db.bulkPut('images', imageChunks, (c, t) => {
+            await db.bulkPut('images', imageChunks, (c, _t) => {
                 const pct = 50 + (c / totalImages * 45); // 50-95%
                 postProgress('restore', pct, 100, 'restoring_images');
             });
