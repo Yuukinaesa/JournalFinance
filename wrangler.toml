@@ -1,5 +1,6 @@
 name = "catatan"
 main = "backend/worker.js"
+account_id = "fc88f1be58ad0c518397c428cded8980"
 compatibility_date = "2025-01-01"
 
 # Binding Database
