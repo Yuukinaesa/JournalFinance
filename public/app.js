@@ -1880,19 +1880,24 @@ window.app = {
 
                 // 3. SECURITY: Validate base64 format before injecting into DOM
                 if (imageData && typeof imageData === 'string' && /^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(imageData)) {
-                    container.innerHTML = `<img src="${imageData}" style="width:100%; border-radius:8px; display:block; box-shadow: var(--shadow-sm);" loading="lazy" alt="Attachment">`;
-
-                    const img = container.querySelector('img');
-                    if (img) {
-                        img.style.cursor = 'zoom-in';
-                        img.addEventListener('click', () => {
-                            const modal = document.createElement('div');
-                            modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:zoom-out;';
-                            modal.innerHTML = `<img src="${imageData}" style="max-width:95%;max-height:95vh;border-radius:4px;box-shadow:0 0 30px rgba(0,0,0,0.5);">`;
-                            modal.addEventListener('click', () => modal.remove());
-                            document.body.appendChild(modal);
-                        });
-                    }
+                    container.textContent = '';
+                    const img = document.createElement('img');
+                    img.src = imageData;
+                    img.style.cssText = 'width:100%; border-radius:8px; display:block; box-shadow: var(--shadow-sm); cursor: zoom-in;';
+                    img.loading = 'lazy';
+                    img.alt = 'Attachment';
+                    img.addEventListener('click', () => {
+                        const modal = document.createElement('div');
+                        modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:zoom-out;';
+                        const modalImg = document.createElement('img');
+                        modalImg.src = imageData;
+                        modalImg.style.cssText = 'max-width:95%;max-height:95vh;border-radius:4px;box-shadow:0 0 30px rgba(0,0,0,0.5);';
+                        modalImg.alt = 'Full Attachment';
+                        modal.appendChild(modalImg);
+                        modal.addEventListener('click', () => modal.remove());
+                        document.body.appendChild(modal);
+                    });
+                    container.appendChild(img);
                 } else {
                     container.style.display = 'none';
                 }
