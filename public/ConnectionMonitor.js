@@ -105,24 +105,42 @@ const ConnectionMonitor = {
             this.showBanner('offline');
         });
 
-        // Visibility change - check connection when user comes back
+        // Visibility change - check connection ONLY if previously disconnected or ping is stale (>10 mins)
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible' && this.isOnline) {
-                this.checkAPIConnection();
+                if (!this.isConnectedToAPI || (Date.now() - this.lastSuccessfulPing > 600000)) {
+                    this.checkAPIConnection(true);
+                }
             }
         });
     },
 
-    startMonitoring() {
-        // Initial check
-        this.checkAPIConnection();
+    recordSuccess() {
+        this.isOnline = true;
+        this.isConnectedToAPI = true;
+        this.retryCount = 0;
+        this.lastSuccessfulPing = Date.now();
+        this.hideBanner();
+        this.processPendingOperations();
+    },
 
-        // Periodic check every 30 seconds
-        this.checkInterval = setInterval(() => {
-            if (this.isOnline) {
-                this.checkAPIConnection(true); // Silent check
-            }
-        }, 30000);
+    recordFailure(error) {
+        this.isConnectedToAPI = false;
+        if (!this.isOnline) {
+            this.showBanner('offline');
+        } else if (error && error.name === 'AbortError') {
+            this.showBanner('slow');
+        } else {
+            this.showBanner('error');
+        }
+    },
+
+    startMonitoring() {
+        // Initial silent check on launch
+        this.checkAPIConnection(true);
+        // CLOUDFLARE QUOTA OPTIMIZATION:
+        // Removed blind 30-second setInterval. Connection is verified reactively via
+        // actual API request telemetry and online/offline browser events.
     },
 
     async checkAPIConnection(silent = false) {

@@ -83,8 +83,13 @@ class MockD1Database {
         else if (sql.includes('INSERT OR IGNORE INTO entries')) {
             // Mock entry insert
             const id = bindings[0];
-            this.entries.push({ id, user_id: bindings[1], date: bindings[2], title: bindings[3] });
+            this.entries.push({ id, user_id: bindings[1], date: bindings[2], title: bindings[3], type: bindings[4], amount: bindings[5] });
             result = { success: true };
+        }
+        else if (sql.includes('MAX(last_synced)')) {
+            const [userId] = bindings;
+            const userEntries = this.entries.filter(e => e.user_id === userId);
+            result = { latest_sync: 1000, total: userEntries.length };
         }
         else if (sql.includes('SELECT id, user_id, date')) {
             const [userId] = bindings;
@@ -205,6 +210,16 @@ async function runTests() {
         assert.equal(res.status, 200);
         assert.ok(data.success);
         assert.ok(Array.isArray(data.data)); // "results" mapped to "data" in worker
+        const etag = res.headers.get('ETag');
+        assert.ok(etag, "Response must include an ETag header");
+
+        // Test 304 Not Modified with If-None-Match
+        const req304 = createRequest('GET', '/api/entries', null, {
+            'Authorization': `Bearer ${globalThis.authToken}`,
+            'If-None-Match': etag
+        });
+        const res304 = await worker.fetch(req304, env, ctx);
+        assert.equal(res304.status, 304, "Must return 304 Not Modified when ETag matches");
     });
 
     // 6. RATE LIMITING
@@ -234,6 +249,35 @@ async function runTests() {
         assert.equal(worker.maskUsername('tester'), 't***r');
         assert.equal(worker.maskIP('192.168.1.50'), '192.168.1.xxx');
         assert.equal(worker.sanitizeInput('Clean\x00Control\x07Chars'), 'CleanControlChars');
+    });
+
+    // 8. FINANCIAL PRECISION & ROUNDING
+    await test("Financial Integrity: Round Amount to 4 decimals", async () => {
+        const req = createRequest('POST', '/api/entries', {
+            id: 'fin_test_1',
+            date: '2026-10-18',
+            title: 'Gold purchase',
+            type: 'barang',
+            amount: 1234.56789123
+        }, {
+            'Authorization': `Bearer ${globalThis.authToken}`
+        });
+        const res = await worker.fetch(req, env, ctx);
+        assert.equal(res.status, 200);
+        const saved = env.DB.entries.find(e => e.id === 'fin_test_1');
+        assert.equal(saved.amount, 1234.5679);
+    });
+
+    // 9. STATIC SECURITY HEADERS
+    await test("Static Asset Security Headers (CSP, Referrer, Permissions)", async () => {
+        const req = createRequest('GET', '/favicon.png');
+        const res = await worker.fetch(req, env, ctx);
+        assert.equal(res.status, 200);
+        assert.equal(res.headers.get('X-Frame-Options'), 'DENY');
+        assert.equal(res.headers.get('X-Content-Type-Options'), 'nosniff');
+        assert.ok(res.headers.get('Content-Security-Policy'));
+        assert.equal(res.headers.get('Referrer-Policy'), 'strict-origin-when-cross-origin');
+        assert.equal(res.headers.get('Permissions-Policy'), 'camera=(), microphone=(), geolocation=()');
     });
 
     console.log(`\n🎉 Tests Completed: ${passed} Passed, ${failed} Failed`);

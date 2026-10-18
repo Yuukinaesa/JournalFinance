@@ -15,17 +15,24 @@ const API_CONFIG = {
     TIMEOUT: 30000 // 30 seconds timeout for all requests
 };
 
-/**
- * UTILITY: Fetch with Timeout
- * Prevents indefinite hang on network failures
- */
-function fetchWithTimeout(url, options = {}, timeout = API_CONFIG.TIMEOUT) {
-    return Promise.race([
-        fetch(url, options),
-        new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Network timeout (30s exceeded)')), timeout)
-        )
-    ]);
+async function fetchWithTimeout(url, options = {}, timeout = API_CONFIG.TIMEOUT) {
+    try {
+        const res = await Promise.race([
+            fetch(url, options),
+            new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Network timeout (30s exceeded)')), timeout)
+            )
+        ]);
+        if ((res.ok || res.status === 304) && typeof ConnectionMonitor !== 'undefined' && typeof ConnectionMonitor.recordSuccess === 'function') {
+            ConnectionMonitor.recordSuccess();
+        }
+        return res;
+    } catch (err) {
+        if (typeof ConnectionMonitor !== 'undefined' && typeof ConnectionMonitor.recordFailure === 'function') {
+            ConnectionMonitor.recordFailure(err);
+        }
+        throw err;
+    }
 }
 
 class Auth {
@@ -274,23 +281,36 @@ class Auth {
 
     // --- FULL CLOUD API ---
 
-    static async fetchEntries() {
+    static async fetchEntries(etag = null) {
         await this.ensureToken();
         if (!this.isAuthenticated()) return [];
         try {
+            const headers = this.getHeaders();
+            if (etag) {
+                headers['If-None-Match'] = etag;
+            }
             const res = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/api/entries`, {
-                headers: this.getHeaders()
+                headers
             });
+
+            if (res.status === 304) {
+                const empty = [];
+                empty.notModified = true;
+                empty.etag = etag;
+                return empty;
+            }
+
             if (res.status === 401) {
-                // Retry once if 401? Or assume ensureToken handled it.
-                // If 401 happens despite ensureToken, it means refresh token also dead
                 this.logout();
                 window.location.replace('login.html');
                 return [];
             }
             if (!res.ok) throw new Error('Failed to fetch entries');
             const json = await res.json();
-            return json.success ? json.data : [];
+            const list = json.success ? json.data : [];
+            list.notModified = false;
+            list.etag = res.headers.get('ETag') || null;
+            return list;
         } catch (e) {
             console.error('Fetch Entries Error:', e);
             throw e;

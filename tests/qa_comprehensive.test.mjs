@@ -94,6 +94,14 @@ class MockD1Database {
         }
 
         if (lowerSql.startsWith('select') && lowerSql.includes('from entries')) {
+            if (lowerSql.includes('max(last_synced)')) {
+                const userId = bindings[0];
+                const userEntries = this.entries.filter(e => e.user_id === userId);
+                const stat = { latest_sync: 1000, total: userEntries.length };
+                if (mode === 'first') return stat;
+                return { results: [stat] };
+            }
+
             if (lowerSql.includes('count(*)')) {
                 return { results: [{ count: this.entries.length }] };
             }
@@ -377,7 +385,13 @@ async function runQASuite() {
     if (await runStep("4.1 Security Headers", async () => {
         const res = await worker.fetch(request('GET', '/style.css'), env, ctx);
         assert.equal(res.status, 200);
-        assert.ok(res.headers.get('Cache-Control').includes('no-store'));
+        assert.equal(res.headers.get('X-Frame-Options'), 'DENY');
+        assert.equal(res.headers.get('X-Content-Type-Options'), 'nosniff');
+        assert.ok(res.headers.get('Cache-Control'));
+
+        // API routes must have no-store to protect sensitive data
+        const apiRes = await worker.fetch(request('GET', '/api/health'), env, ctx);
+        assert.ok(apiRes.headers.get('Cache-Control').includes('no-store'));
     })) passed++; else failed++;
 
     if (await runStep("4.2 CORS", async () => {

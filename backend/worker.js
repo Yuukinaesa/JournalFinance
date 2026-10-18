@@ -316,8 +316,29 @@ export default {
                     const user = await this.verifyAuth(request, env);
                     if (!user) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: corsHeaders });
 
-                    // 1. GET ALL ENTRIES (Lightweight - No Images)
+                    // 1. GET ALL ENTRIES (Lightweight - No Images) + ETag Quota Optimization
                     if (path === '/api/entries' && method === 'GET') {
+                        // CLOUDFLARE QUOTA OPTIMIZATION: Check lightweight metadata ETag first
+                        const summary = await env.DB.prepare(
+                            'SELECT MAX(last_synced) as latest_sync, COUNT(id) as total FROM entries WHERE user_id = ?'
+                        ).bind(user.id).first();
+
+                        const latestSync = (summary && summary.latest_sync) ? summary.latest_sync : 0;
+                        const totalCount = (summary && summary.total) ? summary.total : 0;
+                        const etag = `W/"${latestSync}-${totalCount}"`;
+
+                        const clientEtag = request.headers.get('If-None-Match');
+                        if (clientEtag && clientEtag === etag) {
+                            return new Response(null, {
+                                status: 304,
+                                headers: {
+                                    ...corsHeaders,
+                                    'ETag': etag,
+                                    'Cache-Control': 'no-cache'
+                                }
+                            });
+                        }
+
                         // Select everything EXCEPT image_data to save bandwidth
                         const { results } = await env.DB.prepare('SELECT id, user_id, date, title, type, amount, reason, highlight, pinned, has_image, timestamp, last_synced FROM entries WHERE user_id = ? ORDER BY date DESC, timestamp DESC').bind(user.id).all();
 
@@ -327,7 +348,13 @@ export default {
                             pinned: !!e.pinned,
                             hasImage: !!e.has_image
                         }));
-                        return new Response(JSON.stringify({ success: true, data: normalized }), { headers: corsHeaders });
+                        return new Response(JSON.stringify({ success: true, data: normalized }), {
+                            headers: {
+                                ...corsHeaders,
+                                'ETag': etag,
+                                'Cache-Control': 'no-cache'
+                            }
+                        });
                     }
 
                     // 2. GET SINGLE ENTRY / IMAGE
@@ -387,13 +414,14 @@ export default {
                             return new Response(JSON.stringify({ error: 'Invalid type' }), { status: 400, headers: corsHeaders });
                         }
 
-                        // 5. Amount Validation (number, reasonable range)
+                        // 5. Amount Validation (number, reasonable range, financial rounding)
                         let amount = 0;
                         if (e.amount !== undefined && e.amount !== null) {
                             amount = parseFloat(e.amount);
                             if (isNaN(amount) || amount < CONSTANTS.MIN_AMOUNT_VALUE || amount > CONSTANTS.MAX_AMOUNT_VALUE) {
                                 return new Response(JSON.stringify({ error: 'Invalid amount' }), { status: 400, headers: corsHeaders });
                             }
+                            amount = Math.round(amount * 10000) / 10000;
                         }
 
                         // 6. Reason Validation (max 5000 chars)
@@ -440,8 +468,8 @@ export default {
                         // SAVE TO DATABASE (with validated data)
                         await env.DB.batch([
                             env.DB.prepare(`
-                                INSERT OR IGNORE INTO entries (id, user_id, date, title, type, amount, reason, highlight, pinned, has_image, image_data, timestamp)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                INSERT OR IGNORE INTO entries (id, user_id, date, title, type, amount, reason, highlight, pinned, has_image, image_data, timestamp, last_synced)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(strftime('%s', 'now') AS INTEGER))
                             `).bind(
                                 e.id, user.id, e.date, title, e.type, amount, reason,
                                 highlight ? 1 : 0, pinned ? 1 : 0, hasImage ? 1 : 0, imageDataToSave, timestamp
@@ -449,7 +477,8 @@ export default {
                             env.DB.prepare(`
                                 UPDATE entries SET
                                 date=?, title=?, type=?, amount=?, reason=?, 
-                                highlight=?, pinned=?, has_image=?, image_data=?, timestamp=?
+                                highlight=?, pinned=?, has_image=?, image_data=?, timestamp=?,
+                                last_synced=CAST(strftime('%s', 'now') AS INTEGER)
                                 WHERE id = ? AND user_id = ?
                             `).bind(
                                 e.date, title, e.type, amount, reason,
@@ -502,15 +531,24 @@ export default {
                     if (notFound.status === 200) return notFound;
                 }
 
-                // CACHE BUSTING: Force browser to revalidate static assets
-                // This ensures users always get the latest version without manual refresh
+                // CLOUDFLARE QUOTA OPTIMIZATION: Differentiated caching to protect 100k Worker requests quota
                 const newHeaders = new Headers(asset.headers);
-                newHeaders.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
-                newHeaders.set('Pragma', 'no-cache');
-                newHeaders.set('Expires', '0');
                 newHeaders.set('X-Content-Type-Options', 'nosniff');
                 newHeaders.set('X-Frame-Options', 'DENY');
+                newHeaders.set('Content-Security-Policy', cspHeader);
+                newHeaders.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+                newHeaders.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
                 newHeaders.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+
+                if (path.endsWith('.html') || path === '/') {
+                    newHeaders.set('Cache-Control', 'no-cache, must-revalidate');
+                } else if (/\.(png|jpe?g|webp|svg|ico|woff2?|ttf|eot)$/i.test(path)) {
+                    newHeaders.set('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
+                } else if (/\.(js|css|json)$/i.test(path)) {
+                    newHeaders.set('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400');
+                } else {
+                    newHeaders.set('Cache-Control', 'public, max-age=3600');
+                }
 
                 return new Response(asset.body, {
                     status: asset.status,
@@ -684,8 +722,8 @@ export default {
             // Prepare Statements
             // 1. Try Insert (Safe) - Only for NEW entries
             const insertStmt = env.DB.prepare(`
-                INSERT OR IGNORE INTO entries (id, user_id, date, title, type, amount, reason, highlight, pinned, has_image, image_data, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT OR IGNORE INTO entries (id, user_id, date, title, type, amount, reason, highlight, pinned, has_image, image_data, timestamp, last_synced)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(strftime('%s', 'now') AS INTEGER))
             `);
 
             // 2. Update metadata ONLY (PRESERVE existing image_data)
@@ -694,7 +732,8 @@ export default {
             const updateMetadataStmt = env.DB.prepare(`
                 UPDATE entries SET
                 date=?, title=?, type=?, amount=?, reason=?, 
-                highlight=?, pinned=?, has_image=?, timestamp=?
+                highlight=?, pinned=?, has_image=?, timestamp=?,
+                last_synced=CAST(strftime('%s', 'now') AS INTEGER)
                 WHERE id = ? AND user_id = ?
             `);
 
@@ -703,7 +742,8 @@ export default {
                 UPDATE entries SET
                 date=?, title=?, type=?, amount=?, reason=?, 
                 highlight=?, pinned=?, has_image=?, 
-                image_data=?, timestamp=?
+                image_data=?, timestamp=?,
+                last_synced=CAST(strftime('%s', 'now') AS INTEGER)
                 WHERE id = ? AND user_id = ?
             `);
 
@@ -723,6 +763,7 @@ export default {
 
                 let amount = parseFloat(e.amount);
                 if (isNaN(amount) || amount < CONSTANTS.MIN_AMOUNT_VALUE || amount > CONSTANTS.MAX_AMOUNT_VALUE) amount = 0;
+                amount = Math.round(amount * 10000) / 10000;
 
                 let reason = typeof e.reason === 'string' ? e.reason : '';
                 if (reason.length > CONSTANTS.MAX_REASON_LENGTH) reason = reason.substring(0, CONSTANTS.MAX_REASON_LENGTH);
@@ -795,7 +836,15 @@ export default {
             imageData: null // Explicitly null to indicate need for fetch if hasImage=true
         }));
 
-        return new Response(JSON.stringify({ success: true, entries: normalized }), { headers });
+        const latestSync = (results.length > 0) ? Math.max(...results.map(e => e.last_synced || 0)) : 0;
+        const etag = `W/"${latestSync}-${results.length}"`;
+        return new Response(JSON.stringify({ success: true, entries: normalized }), {
+            headers: {
+                ...headers,
+                'ETag': etag,
+                'Cache-Control': 'no-cache'
+            }
+        });
     },
 
     async resetData(request, env, user, headers) {

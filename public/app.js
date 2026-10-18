@@ -145,16 +145,8 @@ window.app = {
             this.initEventListeners();
             this.renderList();
 
-            // Background Sync (Every 10 seconds) - Near Real-time
-            this.syncIntervalId = setInterval(() => this.performSync(), 10000);
-
-            // REAL-TIME: Instant sync when user returns to tab (cross-device scenario)
-            document.addEventListener('visibilitychange', () => {
-                if (document.visibilityState === 'visible' && Auth.isAuthenticated()) {
-                    // Small delay to let network stabilize after screen wake
-                    setTimeout(() => this.performSync(), 500);
-                }
-            });
+            // CLOUDFLARE QUOTA OPTIMIZATION: Adaptive Smart Sync (Event-driven + 60s foreground)
+            this.initAdaptiveSync();
 
             // RESUME CHECK - Keeping for File Restore Only
             if (localStorage.getItem('APP_STATUS') === 'RESTORING') {
@@ -712,6 +704,49 @@ window.app = {
         }
     },
 
+    initAdaptiveSync() {
+        const SYNC_INTERVAL_ACTIVE_MS = 60000; // 60s while tab is visible
+
+        const startTimer = () => {
+            if (this.syncIntervalId) clearInterval(this.syncIntervalId);
+            this.syncIntervalId = setInterval(() => {
+                if (document.visibilityState === 'visible' && Auth.isAuthenticated()) {
+                    this.performSync();
+                }
+            }, SYNC_INTERVAL_ACTIVE_MS);
+        };
+
+        const stopTimer = () => {
+            if (this.syncIntervalId) {
+                clearInterval(this.syncIntervalId);
+                this.syncIntervalId = null;
+            }
+        };
+
+        if (document.visibilityState === 'visible') {
+            startTimer();
+        }
+
+        // REAL-TIME: Instant sync when tab gains visibility, stop timer when hidden
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                if (Auth.isAuthenticated()) {
+                    setTimeout(() => this.performSync(), 300);
+                }
+                startTimer();
+            } else {
+                stopTimer();
+            }
+        });
+
+        // Instant sync when device reconnects to internet
+        window.addEventListener('online', () => {
+            if (Auth.isAuthenticated()) {
+                setTimeout(() => this.performSync(), 500);
+            }
+        });
+    },
+
     async performSync() {
         if (this.isSyncing) return;
         if (this.isSaving) return; // Don't sync while a save operation is in progress
@@ -727,9 +762,17 @@ window.app = {
             // We do not upload "local" changes here because "Online Only" app pushes changes immediately on save.
             // Any "local only" data is considered stale/failed and should be overwritten by Cloud Truth.
 
-            // 1. Fetch All Metadata from Cloud
-            const cloudEntries = await Auth.fetchEntries();
+            // 1. Fetch All Metadata from Cloud (with ETag quota optimization)
+            const cloudEntries = await Auth.fetchEntries(this.lastSyncETag);
+            if (cloudEntries && cloudEntries.notModified) {
+                // Cloud data unchanged (304 Not Modified): zero changes, zero DOM re-render
+                return;
+            }
+
             if (!Array.isArray(cloudEntries)) throw new Error('Invalid cloud response');
+            if (cloudEntries.etag) {
+                this.lastSyncETag = cloudEntries.etag;
+            }
 
             // 2. Get All Local IDs to determine what to delete (Zombies)
             // We use getAllEntries just to get IDs, or optimize if DB has getKeys method
@@ -825,15 +868,18 @@ window.app = {
                 this.data = toUpdate;
             }
 
-            // 7. REAL-TIME PREFERENCE SYNC
-            // Fetch latest preferences from cloud (handles cross-device changes)
-            try {
-                const freshPrefs = await Auth.fetchPreferences();
-                if (freshPrefs) {
-                    this.applyCloudPreferences(freshPrefs);
+            // 7. REAL-TIME PREFERENCE SYNC (Throttled to once every 5 minutes to conserve D1 quota)
+            const now = Date.now();
+            if (!this._lastPrefSyncTime || (now - this._lastPrefSyncTime > 300000)) {
+                this._lastPrefSyncTime = now;
+                try {
+                    const freshPrefs = await Auth.fetchPreferences();
+                    if (freshPrefs) {
+                        this.applyCloudPreferences(freshPrefs);
+                    }
+                } catch (prefErr) {
+                    console.warn('Preference sync skipped:', prefErr);
                 }
-            } catch (prefErr) {
-                console.warn('Preference sync skipped:', prefErr);
             }
 
         } catch (e) {
@@ -1314,6 +1360,13 @@ window.app = {
             // Save to Cloud (source of truth)
             await Auth.saveEntry(payload);
 
+            // CLOUD-LOCAL SYNC: Immediately cache image blob in local IndexedDB to avoid re-fetching
+            if (imageData && this.db && typeof this.db.saveImage === 'function') {
+                await this.db.saveImage(entry.id, imageData);
+            } else if (this.pendingImageClear && this.db && typeof this.db.deleteImage === 'function') {
+                await this.db.deleteImage(entry.id);
+            }
+
             // BUG FIX: Instead of manually pushing to this.data (which causes desync),
             // fetch fresh data from cloud to guarantee consistency.
             // This eliminates ALL possible duplication scenarios.
@@ -1391,6 +1444,9 @@ window.app = {
 
             try {
                 await Auth.deleteEntry(this.deleteTargetId);
+                if (this.db && typeof this.db.deleteFull === 'function') {
+                    await this.db.deleteFull(this.deleteTargetId);
+                }
                 this.data = this.data.filter(item => String(item.id) !== String(this.deleteTargetId));
                 this.showToast('✅ Catatan dihapus (Cloud)');
                 this.renderList();
@@ -1700,15 +1756,37 @@ window.app = {
         listContainer.innerHTML = '';
 
         if (filtered.length === 0) {
+            const hasData = this.data.length > 0;
             listContainer.innerHTML = `
-                <div class="empty-state">
-                    <p>Tidak ada catatan.</p>
-                    <button class="btn btn-secondary" id="emptyStateResetBtn">Reset Filter</button>
+                <div class="empty-state" style="padding: 48px 24px; text-align: center;">
+                    <div style="width: 56px; height: 56px; margin: 0 auto 16px; background: var(--bg-card); border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border-color); color: var(--text-muted);">
+                        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                            <line x1="8" y1="21" x2="16" y2="21"></line>
+                            <line x1="12" y1="17" x2="12" y2="21"></line>
+                        </svg>
+                    </div>
+                    <h4 style="font-size: 1.15rem; font-weight: 700; margin-bottom: 6px; color: var(--text-main);">
+                        ${hasData ? 'Tidak Ada Catatan yang Cocok' : 'Belum Ada Catatan'}
+                    </h4>
+                    <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 20px; max-width: 380px; margin-left: auto; margin-right: auto; line-height: 1.5;">
+                        ${hasData ? 'Coba ubah kata kunci pencarian atau sesuaikan rentang tanggal filter Anda.' : 'Mulai catat transaksi, aset saham/kripto, atau peristiwa penting Anda sekarang.'}
+                    </p>
+                    <button class="btn btn-primary" id="emptyStateActionBtn">
+                        ${hasData ? 'Reset Filter' : '+ Tambah Catatan Pertama'}
+                    </button>
                 </div>
             `;
-            // Bind the dynamic button
-            const btn = document.getElementById('emptyStateResetBtn');
-            if (btn) btn.addEventListener('click', () => this.resetFilters());
+            const actionBtn = document.getElementById('emptyStateActionBtn');
+            if (actionBtn) {
+                actionBtn.addEventListener('click', () => {
+                    if (hasData) {
+                        this.resetFilters();
+                    } else {
+                        this.openModal(false);
+                    }
+                });
+            }
             return;
         }
 
@@ -1777,31 +1855,44 @@ window.app = {
     },
 
     async loadImagesLazy() {
-        const containers = document.querySelectorAll('.image-container');
-        // PERF FIX: Load images in parallel instead of sequentially
-        const loadPromises = Array.from(containers).map(async (container) => {
+        const containers = document.querySelectorAll('.image-container:not([data-loaded="true"])');
+        if (!containers.length) return;
+
+        const loadSingleImage = async (container) => {
             const entryId = container.dataset.entryId;
-            if (!entryId) return;
+            if (!entryId || container.dataset.loaded === 'true') return;
+            container.dataset.loaded = 'true';
 
             try {
-                // Fetch from Cloud API
-                const imageData = await Auth.fetchImage(entryId);
+                // 1. Check local IndexedDB cache first (zero network latency, zero quota consumed)
+                let imageData = null;
+                if (this.db && typeof this.db.getImage === 'function') {
+                    imageData = await this.db.getImage(entryId);
+                }
 
-                // SECURITY: Validate base64 format before injecting into DOM
+                // 2. Fetch from Cloud API only if not in local DB
+                if (!imageData) {
+                    imageData = await Auth.fetchImage(entryId);
+                    if (imageData && this.db && typeof this.db.saveImage === 'function') {
+                        await this.db.saveImage(entryId, imageData);
+                    }
+                }
+
+                // 3. SECURITY: Validate base64 format before injecting into DOM
                 if (imageData && typeof imageData === 'string' && /^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(imageData)) {
                     container.innerHTML = `<img src="${imageData}" style="width:100%; border-radius:8px; display:block; box-shadow: var(--shadow-sm);" loading="lazy" alt="Attachment">`;
 
-                    // Simple modal for image view
                     const img = container.querySelector('img');
-                    img.style.cursor = 'zoom-in';
-                    img.addEventListener('click', () => {
-                        const modal = document.createElement('div');
-                        modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:zoom-out;';
-                        modal.innerHTML = `<img src="${imageData}" style="max-width:95%;max-height:95vh;border-radius:4px;box-shadow:0 0 30px rgba(0,0,0,0.5);">`;
-                        modal.addEventListener('click', () => modal.remove());
-                        document.body.appendChild(modal);
-                    });
-
+                    if (img) {
+                        img.style.cursor = 'zoom-in';
+                        img.addEventListener('click', () => {
+                            const modal = document.createElement('div');
+                            modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:zoom-out;';
+                            modal.innerHTML = `<img src="${imageData}" style="max-width:95%;max-height:95vh;border-radius:4px;box-shadow:0 0 30px rgba(0,0,0,0.5);">`;
+                            modal.addEventListener('click', () => modal.remove());
+                            document.body.appendChild(modal);
+                        });
+                    }
                 } else {
                     container.style.display = 'none';
                 }
@@ -1809,8 +1900,23 @@ window.app = {
                 console.error('Error loading image', entryId, e);
                 container.style.display = 'none';
             }
-        });
-        await Promise.all(loadPromises);
+        };
+
+        if ('IntersectionObserver' in window) {
+            if (!this.imageObserver) {
+                this.imageObserver = new window.IntersectionObserver((entries, observer) => {
+                    entries.forEach(entry => {
+                        if (entry.isIntersecting) {
+                            observer.unobserve(entry.target);
+                            loadSingleImage(entry.target);
+                        }
+                    });
+                }, { rootMargin: '200px 0px' });
+            }
+            containers.forEach(c => this.imageObserver.observe(c));
+        } else {
+            await Promise.all(Array.from(containers).map(loadSingleImage));
+        }
     },
 
 
