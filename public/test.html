@@ -54,9 +54,10 @@
         const log = (msg, status = 'INFO') => {
             const el = document.createElement('div');
             el.className = 'log';
-            if (status === 'PASS') el.innerHTML = `[PASS] <span class="pass">${msg}</span>`;
-            else if (status === 'FAIL') el.innerHTML = `[FAIL] <span class="fail">${msg}</span>`;
-            else el.innerText = `[INFO] ${msg}`;
+            const statusSpan = document.createElement('span');
+            statusSpan.className = status === 'PASS' ? 'pass' : (status === 'FAIL' ? 'fail' : '');
+            statusSpan.textContent = `[${status}] ${msg}`;
+            el.appendChild(statusSpan);
             document.getElementById('results').appendChild(el);
             console.log(`[${status}] ${msg}`);
             return status === 'PASS';

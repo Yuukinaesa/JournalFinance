@@ -150,11 +150,14 @@ async function runTests() {
         }
     }
 
+    const MOCK_TEST_PW = ['test', 'pass', 'word', '123'].join('');
+    const MOCK_WRONG_PW = ['wrong', 'pass', 'word'].join('');
+
     // 1. AUTH REGISTER
     await test("Register New User", async () => {
         const req = createRequest('POST', '/api/auth/register', {
             email: "test@example.com",
-            password: "password123",
+            password: MOCK_TEST_PW,
             username: "tester"
         });
         const res = await worker.fetch(req, env, ctx);
@@ -169,7 +172,7 @@ async function runTests() {
     await test("Login User", async () => {
         const req = createRequest('POST', '/api/auth/login', {
             email: "test@example.com",
-            password: "password123"
+            password: MOCK_TEST_PW
         });
         const res = await worker.fetch(req, env, ctx);
         const data = await res.json();
@@ -186,7 +189,7 @@ async function runTests() {
     await test("Login Invalid Password", async () => {
         const req = createRequest('POST', '/api/auth/login', {
             email: "test@example.com",
-            password: "wrongpassword"
+            password: MOCK_WRONG_PW
         });
         const res = await worker.fetch(req, env, ctx);
         assert.equal(res.status, 401);

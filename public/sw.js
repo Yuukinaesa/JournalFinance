@@ -215,7 +215,13 @@ async function trimCache(cacheName, maxSize) {
  * SECURITY: Origin verification to prevent cross-origin attacks
  */
 self.addEventListener('message', (event) => {
-    // SECURITY: Verify message origin - only accept from same origin
+    // SECURITY: Strict origin check for Service Worker messages
+    const origin = event.origin;
+    if (origin !== self.location.origin && origin !== 'https://catatan.arfan-hidayat-priyantono.workers.dev') {
+        console.warn('SW: Rejecting cross-origin message from origin:', origin);
+        return;
+    }
+
     if (!event.source || !event.source.url) {
         console.warn('SW: Rejecting message from unknown source');
         return;
@@ -223,9 +229,7 @@ self.addEventListener('message', (event) => {
 
     try {
         const sourceOrigin = new URL(event.source.url).origin;
-        const swOrigin = new URL(self.location.href).origin;
-
-        if (sourceOrigin !== swOrigin) {
+        if (sourceOrigin !== self.location.origin && sourceOrigin !== 'https://catatan.arfan-hidayat-priyantono.workers.dev') {
             console.warn('SW: Rejecting cross-origin message from:', sourceOrigin);
             return;
         }
