@@ -13,3 +13,4 @@ database_id = "0611eed4-6d45-452a-ad81-bb1f83fd3a12"
 [assets]
 directory = "public"
 binding = "ASSETS"
+run_worker_first = true
