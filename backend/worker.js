@@ -358,11 +358,11 @@ export default {
                     }
 
                     // 2. GET SINGLE ENTRY / IMAGE
-                    // Pattern: /api/entries/IMAGE_ID/image
-                    if (path.match(/\/api\/entries\/[^\/]+\/image/) && method === 'GET') {
-                        const entryId = path.split('/')[3]; // /api/entries/ID/image
-                        // SECURITY: Validate entryId to prevent path traversal
-                        if (!entryId || !/^[a-zA-Z0-9_-]+$/.test(entryId) || entryId.length > CONSTANTS.MAX_ENTRY_ID_LENGTH) {
+                    // Pattern: /api/entries/IMAGE_ID/image (strict route matching)
+                    const imageMatch = path.match(/^\/api\/entries\/([a-zA-Z0-9_-]+)\/image$/);
+                    if (imageMatch && method === 'GET') {
+                        const entryId = imageMatch[1];
+                        if (entryId.length > CONSTANTS.MAX_ENTRY_ID_LENGTH) {
                             return new Response(JSON.stringify({ error: 'Invalid entry ID' }), { status: 400, headers: corsHeaders });
                         }
                         const entry = await env.DB.prepare('SELECT image_data FROM entries WHERE id = ? AND user_id = ?').bind(entryId, user.id).first();
@@ -393,12 +393,16 @@ export default {
                             return new Response(JSON.stringify({ error: 'ID contains invalid characters' }), { status: 400, headers: corsHeaders });
                         }
 
-                        // 2. Date Validation (YYYY-MM-DD)
+                        // 2. Date Validation (YYYY-MM-DD calendar check)
                         if (!e.date || typeof e.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(e.date)) {
                             return new Response(JSON.stringify({ error: 'Invalid date format (use YYYY-MM-DD)' }), { status: 400, headers: corsHeaders });
                         }
-                        const dateObj = new Date(e.date);
-                        if (isNaN(dateObj.getTime())) {
+                        const [yStr, mStr, dStr] = e.date.split('-');
+                        const y = parseInt(yStr, 10);
+                        const m = parseInt(mStr, 10) - 1;
+                        const d = parseInt(dStr, 10);
+                        const dateUtc = new Date(Date.UTC(y, m, d));
+                        if (isNaN(dateUtc.getTime()) || dateUtc.getUTCFullYear() !== y || dateUtc.getUTCMonth() !== m || dateUtc.getUTCDate() !== d) {
                             return new Response(JSON.stringify({ error: 'Invalid date value' }), { status: 400, headers: corsHeaders });
                         }
 
@@ -491,10 +495,10 @@ export default {
                     }
 
 
-                    if (path.startsWith('/api/entries/') && method === 'DELETE') {
-                        const entryId = path.split('/')[3];
-                        // SECURITY: Validate entryId to prevent path traversal / injection
-                        if (!entryId || !/^[a-zA-Z0-9_-]+$/.test(entryId) || entryId.length > CONSTANTS.MAX_ENTRY_ID_LENGTH) {
+                    const deleteMatch = path.match(/^\/api\/entries\/([a-zA-Z0-9_-]+)$/);
+                    if (deleteMatch && method === 'DELETE') {
+                        const entryId = deleteMatch[1];
+                        if (entryId.length > CONSTANTS.MAX_ENTRY_ID_LENGTH) {
                             return new Response(JSON.stringify({ error: 'Invalid entry ID' }), { status: 400, headers: corsHeaders });
                         }
                         await env.DB.prepare('DELETE FROM entries WHERE id = ? AND user_id = ?').bind(entryId, user.id).run();

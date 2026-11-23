@@ -283,6 +283,31 @@ async function runTests() {
         assert.equal(res.headers.get('Permissions-Policy'), 'camera=(), microphone=(), geolocation=()');
     });
 
+    // 10. STRICT CALENDAR DATE VALIDATION
+    await test("Strict Calendar Date Validation: Reject 2026-02-31", async () => {
+        const req = createRequest('POST', '/api/entries', {
+            id: 'date_invalid_1',
+            date: '2026-02-31',
+            title: 'Invalid Leap Date',
+            type: 'saham'
+        }, {
+            'Authorization': `Bearer ${globalThis.authToken}`
+        });
+        const res = await worker.fetch(req, env, ctx);
+        assert.equal(res.status, 400);
+        const data = await res.json();
+        assert.equal(data.error, 'Invalid date value');
+    });
+
+    // 11. EXACT ROUTE MATCHING & REJECTION OF PATH TRAVERSAL SUBPATHS
+    await test("Route Isolation: Reject Malformed Subpaths on DELETE", async () => {
+        const req = createRequest('DELETE', '/api/entries/test_item/subresource/extra', null, {
+            'Authorization': `Bearer ${globalThis.authToken}`
+        });
+        const res = await worker.fetch(req, env, ctx);
+        assert.equal(res.status, 404);
+    });
+
     console.log(`\n🎉 Tests Completed: ${passed} Passed, ${failed} Failed`);
     if (failed > 0) process.exit(1);
 }

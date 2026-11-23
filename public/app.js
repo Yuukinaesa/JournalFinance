@@ -170,7 +170,7 @@ window.app = {
             if (!existingUserDisplay) {
                 const userDiv = document.createElement('div');
                 userDiv.id = 'userDisplay';
-                userDiv.style.cssText = 'position: absolute; top: 12px; right: 12px; font-size: 0.85rem; color: var(--text-muted); background: var(--bg-card); padding: 4px 12px; border-radius: 20px; border: 1px solid var(--border-color); display: flex; align-items: center; gap: 8px; z-index: 50; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); max-width: calc(100vw - 24px);';
+                userDiv.style.cssText = 'position: absolute; top: 12px; right: 12px; font-size: 0.85rem; color: var(--text-muted); background: var(--bg-card); padding: 4px 12px; border-radius: 20px; border: 1px solid var(--border-color); display: flex; align-items: center; gap: 8px; z-index: 50; max-width: calc(100vw - 24px); box-shadow: var(--shadow-sm);';
                 userDiv.innerHTML = `
                         <div style="width: 8px; height: 8px; background: #10b981; border-radius: 50%;"></div>
                         <span style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${this.escapeHtml(user.username || user.email)}</span>
@@ -202,9 +202,9 @@ window.app = {
                         } catch (err) {
                             await this.showAlert('Gagal', 'Logout global sistem gagal: ' + err.message + '\n\nAnda tetap akan logout dari perangkat ini.');
                         } finally {
-                            this.logout();
+                            Auth.logout();
                             window.onbeforeunload = null;
-                            window.location.reload();
+                            window.location.replace('login.html');
                         }
                     }
                 });
@@ -278,7 +278,7 @@ window.app = {
             const url = URL.createObjectURL(data);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `backup_JournalFinance_v2_${new Date().toISOString().slice(0, 10)}.json`;
+            a.download = `backup_JournalFinance_v2_${this.getLocalDateString()}.json`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -411,8 +411,12 @@ window.app = {
     resetFilters() {
         document.getElementById('searchInput').value = '';
         document.getElementById('filterType').value = '';
-        document.getElementById('dateStart').value = '';
-        document.getElementById('dateEnd').value = '';
+        const startInput = document.getElementById('dateStart');
+        const endInput = document.getElementById('dateEnd');
+        startInput.value = '';
+        startInput.removeAttribute('max');
+        endInput.value = '';
+        endInput.removeAttribute('min');
         this.renderList();
         this.showToast('Filters reset');
     },
@@ -493,7 +497,7 @@ window.app = {
                 json.forEach(item => {
                     entriesToRestore.push({
                         id: String(item.id || crypto.randomUUID()),
-                        date: String(item.date || new Date().toISOString().slice(0, 10)),
+                        date: String(item.date || this.getLocalDateString()),
                         title: String(item.title || 'Untitled'),
                         type: String(item.type || 'lainnya'),
                         amount: parseFloat(item.amount) || 0,
@@ -1002,8 +1006,30 @@ window.app = {
         // Filters
         bind('searchInput', 'input', () => this.onSearchInput());
         bind('filterType', 'change', () => this.renderList());
-        bind('dateStart', 'change', () => this.renderList());
-        bind('dateEnd', 'change', () => this.renderList());
+        bind('dateStart', 'change', (e) => {
+            const endInput = document.getElementById('dateEnd');
+            if (e.target.value) {
+                endInput.min = e.target.value;
+                if (endInput.value && endInput.value < e.target.value) {
+                    endInput.value = e.target.value;
+                }
+            } else {
+                endInput.removeAttribute('min');
+            }
+            this.renderList();
+        });
+        bind('dateEnd', 'change', (e) => {
+            const startInput = document.getElementById('dateStart');
+            if (e.target.value) {
+                startInput.max = e.target.value;
+                if (startInput.value && startInput.value > e.target.value) {
+                    startInput.value = e.target.value;
+                }
+            } else {
+                startInput.removeAttribute('max');
+            }
+            this.renderList();
+        });
         bind('copyBtn', 'click', () => this.copyText());
         bind('downloadBtn', 'click', () => this.downloadTxt());
         bind('resetFilterBtn', 'click', () => this.resetFilters());
@@ -1311,6 +1337,12 @@ window.app = {
             return;
         }
 
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+            this.showToast('Format tanggal tidak valid (YYYY-MM-DD)');
+            this._resetSaveButton(submitBtn);
+            return;
+        }
+
         // Set saving flag AFTER validation passes
         this.isSaving = true;
 
@@ -1572,14 +1604,26 @@ window.app = {
         document.getElementById('entryPin').checked = !!item.pinned;
 
         if (item.hasImage) {
-            Auth.fetchImage(item.id).then(imageData => {
+            (async () => {
+                let imageData = null;
+                if (this.db && typeof this.db.getImage === 'function') {
+                    imageData = await this.db.getImage(item.id);
+                }
+                if (!imageData) {
+                    imageData = await Auth.fetchImage(item.id);
+                    if (imageData && this.db && typeof this.db.saveImage === 'function') {
+                        await this.db.saveImage(item.id, imageData);
+                    }
+                }
                 if (imageData) {
                     const img = document.getElementById('imagePreview');
                     img.src = imageData;
                     document.getElementById('uploadPlaceholder').style.display = 'none';
                     document.getElementById('previewContainer').style.display = 'block';
+                } else {
+                    this.clearImage();
                 }
-            }).catch(() => {
+            })().catch(() => {
                 this.clearImage();
             });
         } else {
@@ -2007,7 +2051,7 @@ window.app = {
         if (!isEdit) {
             document.getElementById('entryForm').reset();
             document.getElementById('entryId').value = '';
-            document.getElementById('entryDate').value = new Date().toISOString().slice(0, 10);
+            document.getElementById('entryDate').value = this.getLocalDateString();
             // document.getElementById('entryAmount').value = ''; // Removed from UI
             document.getElementById('modalTitle').innerText = 'Tambah Catatan';
             this.clearImage();
@@ -2202,7 +2246,7 @@ window.app = {
         const a = document.createElement('a');
         a.href = url;
         // Include date context in filename
-        const dateSuffix = dateStart && dateEnd ? `_${dateStart}_${dateEnd}` : `_${new Date().toISOString().slice(0, 10)}`;
+        const dateSuffix = dateStart && dateEnd ? `_${dateStart}_${dateEnd}` : `_${this.getLocalDateString()}`;
         a.download = `jurnal${dateSuffix}.txt`;
         document.body.appendChild(a);
         a.click();
@@ -2212,10 +2256,22 @@ window.app = {
         this.showToast('✅ File TXT berhasil diunduh');
     },
 
+    getLocalDateString(d = new Date()) {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    },
+
     formatDate(d) {
         if (!d) return '-';
+        if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
+            const [year, month, day] = d.split('-').map(Number);
+            const localDate = new Date(year, month - 1, day);
+            return isNaN(localDate.getTime()) ? d : localDate.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+        }
         const date = new Date(d);
-        return date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+        return isNaN(date.getTime()) ? String(d) : date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
     },
 
     escapeHtml(str) {
