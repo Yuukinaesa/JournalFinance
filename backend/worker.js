@@ -122,7 +122,8 @@ export default {
         }
 
         // --- AUTH SPECIFIC RATE LIMITING ---
-        if (path.startsWith('/api/auth/')) {
+        // Brute-force protection for login and registration endpoints (max 5 attempts/min per IP)
+        if (path === '/api/auth/login' || path === '/api/auth/register') {
             if (!globalThis.authRateLimiter) globalThis.authRateLimiter = new Map();
             const authLimiter = globalThis.authRateLimiter;
             const authLimitData = authLimiter.get(clientIp) || { count: 0, lastReset: currentTime };
@@ -527,12 +528,14 @@ export default {
                     // Note: usually env.ASSETS.fetch(request) handles directory index automatically
                 }
 
-                const asset = await env.ASSETS.fetch(request);
+                let asset = await env.ASSETS.fetch(request);
 
                 if (asset.status === 404) {
                     // Try to serve 404.html from assets if missing
                     const notFound = await env.ASSETS.fetch(new URL('/404.html', request.url));
-                    if (notFound.status === 200) return notFound;
+                    if (notFound.status === 200) {
+                        asset = notFound;
+                    }
                 }
 
                 // CLOUDFLARE QUOTA OPTIMIZATION: Differentiated caching to protect 100k Worker requests quota
@@ -1089,6 +1092,7 @@ export default {
      * Constant-time string comparison to prevent timing attacks
      */
     constantTimeCompare(a, b) {
+        if (typeof a !== 'string' || typeof b !== 'string') return false;
         // SECURITY: Pad to same length to avoid leaking length via timing
         const maxLen = Math.max(a.length, b.length);
         let mismatch = a.length ^ b.length; // Non-zero if lengths differ
@@ -1163,7 +1167,7 @@ export default {
         } catch {
             throw new Error('Malformed token payload');
         }
-        if (!payload || typeof payload !== 'object') throw new Error('Invalid payload');
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('Invalid payload');
         if (Date.now() / 1000 > payload.exp) throw new Error('Token expired');
         return payload;
     },

@@ -308,6 +308,33 @@ async function runTests() {
         assert.equal(res.status, 404);
     });
 
+    // 12. CONSTANT-TIME STRING COMPARISON SAFETY
+    await test("Constant-Time String Comparison: Null & Type Safety", async () => {
+        assert.equal(worker.constantTimeCompare('secret', 'secret'), true);
+        assert.equal(worker.constantTimeCompare('secret', 'wrong'), false);
+        assert.equal(worker.constantTimeCompare(null, 'secret'), false);
+        assert.equal(worker.constantTimeCompare(undefined, undefined), false);
+        assert.equal(worker.constantTimeCompare(12345, '12345'), false);
+    });
+
+    // 13. TOKEN PAYLOAD VALIDATION: REJECT ARRAY AS PAYLOAD
+    await test("Strict JWT Validation: Reject Array Payloads", async () => {
+        const secret = 'test-secret';
+        const header = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" })).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        const body = btoa(JSON.stringify([1, 2, 3])).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        const unsigned = `${header}.${body}`;
+        const signature = await worker.hmacSha256(unsigned, secret);
+        const token = `${unsigned}.${signature}`;
+        let errorCaught = false;
+        try {
+            await worker.verifyToken(token, secret);
+        } catch (e) {
+            errorCaught = true;
+            assert.equal(e.message, 'Invalid payload');
+        }
+        assert.ok(errorCaught, "Token with Array payload must be rejected");
+    });
+
     console.log(`\n🎉 Tests Completed: ${passed} Passed, ${failed} Failed`);
     if (failed > 0) process.exit(1);
 }

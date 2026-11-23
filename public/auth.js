@@ -250,7 +250,24 @@ class Auth {
 
     static async ensureToken() {
         const token = this.getToken();
-        if (!token) return; // Let downstream handle missing token (401)
+        if (!token) {
+            // If access token is missing but refresh token exists, attempt session recovery
+            const refreshToken = this.getRefreshToken();
+            if (refreshToken) {
+                try {
+                    await this.refreshSession();
+                    return;
+                } catch (e) {
+                    if (e.isAuthError) {
+                        this.logout();
+                        window.location.replace('login.html');
+                        throw new Error('Session expired');
+                    }
+                    return;
+                }
+            }
+            return; // Let downstream handle missing token (401)
+        }
 
         if (this.isTokenExpired(token)) {
             // Token expired, try refresh

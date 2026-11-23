@@ -1218,6 +1218,10 @@ window.app = {
 
     processImage(file) {
         return new Promise((resolve, reject) => {
+            if (!file.type || !file.type.startsWith('image/')) {
+                reject(new Error('Hanya file gambar yang didukung.'));
+                return;
+            }
             if (file.size > 10 * 1024 * 1024) {
                 reject(new Error('Ukuran file terlalu besar (>10MB).'));
                 return;
@@ -1267,6 +1271,11 @@ window.app = {
 
         const file = input.files[0];
         if (file) {
+            if (file.type && !file.type.startsWith('image/')) {
+                this.showToast('⚠️ Hanya file gambar yang didukung');
+                input.value = '';
+                return;
+            }
             document.getElementById('imageFileName').innerText = file.name;
             const reader = new FileReader();
             reader.onload = (e) => {
