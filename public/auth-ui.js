@@ -50,8 +50,10 @@ const AuthUI = {
         }
 
         toast.classList.add('show');
-        setTimeout(() => {
+        if (this.toastTimeout) clearTimeout(this.toastTimeout);
+        this.toastTimeout = setTimeout(() => {
             toast.classList.remove('show');
+            this.toastTimeout = null;
         }, 3500);
     }
 };

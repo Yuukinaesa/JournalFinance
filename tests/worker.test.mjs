@@ -335,6 +335,31 @@ async function runTests() {
         assert.ok(errorCaught, "Token with Array payload must be rejected");
     });
 
+    // 14. CALENDAR INTEGRITY: REJECT NON-LEAP FEB 29 AND 31ST ON 30-DAY MONTHS
+    await test("Strict Calendar Date Boundaries: Reject 2025-02-29 and 2026-04-31", async () => {
+        const req1 = createRequest('POST', '/api/entries', {
+            id: 'date_invalid_leap',
+            date: '2025-02-29',
+            title: 'Invalid Leap Date',
+            type: 'saham'
+        }, {
+            'Authorization': `Bearer ${globalThis.authToken}`
+        });
+        const res1 = await worker.fetch(req1, env, ctx);
+        assert.equal(res1.status, 400);
+
+        const req2 = createRequest('POST', '/api/entries', {
+            id: 'date_invalid_apr31',
+            date: '2026-04-31',
+            title: 'Invalid April 31',
+            type: 'saham'
+        }, {
+            'Authorization': `Bearer ${globalThis.authToken}`
+        });
+        const res2 = await worker.fetch(req2, env, ctx);
+        assert.equal(res2.status, 400);
+    });
+
     console.log(`\n🎉 Tests Completed: ${passed} Passed, ${failed} Failed`);
     if (failed > 0) process.exit(1);
 }

@@ -42,7 +42,7 @@ async function handleRegister(e) {
         AuthUI.showToast('Registrasi berhasil! Silakan login.', 'success');
 
         setTimeout(() => {
-            window.location.href = 'login.html';
+            window.location.replace('login.html');
         }, 1500);
 
     } catch (err) {

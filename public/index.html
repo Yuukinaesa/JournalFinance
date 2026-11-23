@@ -82,7 +82,7 @@
                         <span class="desktop-only">Tema</span>
                     </button>
                     <!-- Install Button (Hidden by default) -->
-                    <button class="btn btn-secondary" id="installBtn" style="display: none;" title="Install App">
+                    <button class="btn btn-secondary" id="installBtn" style="display: none;" title="Install App" aria-label="Install App">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                             stroke-linecap="round" stroke-linejoin="round">
                             <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
@@ -148,7 +148,7 @@
                     <input type="date" id="dateEnd" class="date-input" placeholder="Sampai" aria-label="Tanggal akhir">
                 </div>
                 <div class="filter-actions" style="display:flex; gap:8px;">
-                    <button class="btn" title="Salin Catatan" id="copyBtn"
+                    <button class="btn" title="Salin Catatan" id="copyBtn" aria-label="Salin Catatan"
                         style="color: #25D366; border-color: rgba(37, 211, 102, 0.4); background-color: rgba(37, 211, 102, 0.05); padding: 8px 16px;">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                             stroke-linecap="round" stroke-linejoin="round">
@@ -157,7 +157,7 @@
                         </svg>
                         <span>Copy</span>
                     </button>
-                    <button class="btn btn-secondary" title="Download TXT (Sesuai Filter)" id="downloadBtn"
+                    <button class="btn btn-secondary" title="Download TXT (Sesuai Filter)" id="downloadBtn" aria-label="Download TXT"
                         style="padding: 8px 16px;">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                             stroke-linecap="round" stroke-linejoin="round">
@@ -167,7 +167,7 @@
                         </svg>
                         <span>Download</span>
                     </button>
-                    <button class="btn btn-secondary" title="Reset Filter" id="resetFilterBtn"
+                    <button class="btn btn-secondary" title="Reset Filter" id="resetFilterBtn" aria-label="Reset Filter"
                         style="padding: 8px 16px;">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                             stroke-linecap="round" stroke-linejoin="round">
@@ -284,7 +284,7 @@
                                     <polyline points="21 15 16 10 5 21"></polyline>
                                 </svg>
                             </div>
-                            <button type="button" class="btn btn-secondary" id="triggerImgUploadBtn">
+                            <button type="button" class="btn btn-secondary" id="triggerImgUploadBtn" aria-label="Pilih Gambar">
                                 Pilih Gambar
                             </button>
                             <p style="color: var(--text-muted); font-size: 0.75rem; margin-top: 8px;">Auto Kompres Ultra
@@ -298,8 +298,8 @@
                             <img id="imagePreview" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="Preview"
                                 style="max-width: 100%; max-height: 250px; border-radius: 8px; box-shadow: var(--shadow-sm); display: block; margin: 0 auto;">
                             <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: center;">
-                                <button type="button" class="btn btn-secondary" id="replaceImgBtn">Ganti</button>
-                                <button type="button" id="removeImageBtn" class="btn btn-secondary"
+                                <button type="button" class="btn btn-secondary" id="replaceImgBtn" aria-label="Ganti Gambar">Ganti</button>
+                                <button type="button" id="removeImageBtn" class="btn btn-secondary" aria-label="Hapus Gambar"
                                     style="color: #ef4444; border-color: rgba(239,68,68,0.3);">Hapus</button>
                             </div>
                             <p id="imageFileName"
@@ -311,7 +311,7 @@
                 <!-- Footer Actions -->
                 <div
                     style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 8px; padding-top: 20px; border-top: 1px solid var(--border-color);">
-                    <button type="button" class="btn btn-secondary" id="cancelEntryModalBtn"
+                    <button type="button" class="btn btn-secondary" id="cancelEntryModalBtn" aria-label="Batal"
                         style="min-width: 100px;">Batal</button>
                     <button type="submit" class="btn btn-primary" style="min-width: 120px;">Simpan</button>
                 </div>

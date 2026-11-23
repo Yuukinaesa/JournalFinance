@@ -12,6 +12,11 @@ const REQUIRED_FILES = [
     'index.html',
     'app.js',
     'auth.js',
+    'auth-ui.js',
+    'login.html',
+    'login.js',
+    'register.html',
+    'register.js',
     'worker-db.js',
     'OptimizedDB.js',
     'manifest.json',
@@ -36,7 +41,7 @@ REQUIRED_FILES.forEach(file => {
 
 // 2. Syntax Check (Node.js --check)
 console.log("\nChecking syntax (via node --check)...");
-const JS_FILES = ['app.js', 'auth.js', 'worker-db.js', 'OptimizedDB.js', 'sw.js'];
+const JS_FILES = ['app.js', 'auth.js', 'auth-ui.js', 'login.js', 'register.js', 'worker-db.js', 'OptimizedDB.js', 'sw.js'];
 
 JS_FILES.forEach(file => {
     try {

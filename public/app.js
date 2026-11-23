@@ -1352,6 +1352,17 @@ window.app = {
             return;
         }
 
+        const [yStr, mStr, dStr] = date.split('-');
+        const y = parseInt(yStr, 10);
+        const m = parseInt(mStr, 10) - 1;
+        const d = parseInt(dStr, 10);
+        const dateUtc = new Date(Date.UTC(y, m, d));
+        if (isNaN(dateUtc.getTime()) || dateUtc.getUTCFullYear() !== y || dateUtc.getUTCMonth() !== m || dateUtc.getUTCDate() !== d) {
+            this.showToast('Tanggal kalender tidak valid');
+            this._resetSaveButton(submitBtn);
+            return;
+        }
+
         // Set saving flag AFTER validation passes
         this.isSaving = true;
 
@@ -1989,8 +2000,8 @@ window.app = {
 
         if (search) {
             filtered = filtered.filter(item =>
-                item.title.toLowerCase().includes(search) ||
-                (item.reason && item.reason.toLowerCase().includes(search))
+                (item.title ? String(item.title).toLowerCase() : '').includes(search) ||
+                (item.reason ? String(item.reason).toLowerCase() : '').includes(search)
             );
         }
 
@@ -1999,11 +2010,11 @@ window.app = {
         }
 
         if (start) {
-            filtered = filtered.filter(item => item.date >= start);
+            filtered = filtered.filter(item => item.date && item.date >= start);
         }
 
         if (end) {
-            filtered = filtered.filter(item => item.date <= end);
+            filtered = filtered.filter(item => item.date && item.date <= end);
         }
 
         // Sort: Pinned First > Date Descending > Created Descending
@@ -2277,7 +2288,10 @@ window.app = {
         if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
             const [year, month, day] = d.split('-').map(Number);
             const localDate = new Date(year, month - 1, day);
-            return isNaN(localDate.getTime()) ? d : localDate.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+            if (isNaN(localDate.getTime()) || localDate.getFullYear() !== year || localDate.getMonth() !== month - 1 || localDate.getDate() !== day) {
+                return d;
+            }
+            return localDate.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
         }
         const date = new Date(d);
         return isNaN(date.getTime()) ? String(d) : date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
